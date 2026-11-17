@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ngsufl"
+version = "0.1.0"
+description = "The Unified Form Language (UFL) on the NGSolve finite element core"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Joachim Schoeberl" }, { name = "Claude" }]
+requires-python = ">=3.10"
+dependencies = ["ngsolve", "fenics-ufl>=2025.1", "numpy"]
+
+[project.optional-dependencies]
+plot = ["matplotlib"]
+test = ["pytest"]
+docs = ["jupyter-book<2", "matplotlib", "ipykernel"]
+
+[project.urls]
+Homepage = "https://github.com/JSchoeberl/ngsufl"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

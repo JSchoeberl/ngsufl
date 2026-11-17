@@ -1,0 +1,424 @@
+"""Function spaces, functions and constants."""
+
+import numbers
+
+import ngsolve as ngs
+import numpy as np
+import ufl
+from ufl.finiteelement import AbstractFiniteElement
+
+from .element import FiniteElement, MixedElement, make_fespace
+from .mesh import Mesh, default_mesh
+from .translate import Field, Part, translate
+
+
+class FunctionSpace(ufl.FunctionSpace):
+    """``FunctionSpace(mesh, "Lagrange", 2)`` or ``FunctionSpace(mesh, ("Lagrange", 2, (dim,)))``.
+
+    Extra keyword arguments are passed to the NGSolve space.
+    """
+
+    def __init__(self, mesh, family, degree=None, shape=None, **flags):
+        if isinstance(family, AbstractFiniteElement):
+            element = family
+        else:
+            if isinstance(family, (tuple, list)):
+                family, degree, *rest = family
+                shape = rest[0] if rest else shape
+            element = FiniteElement(family, mesh.ufl_cell(), degree, shape=shape)
+        super().__init__(mesh.ufl_domain(), element)
+        self.mesh = mesh
+        self.flags = flags
+        self.fes = make_fespace(mesh.ngs, element, **flags)
+        self._dg = None
+
+    def ngs_space(self, dg=False):
+        """The NGSolve space; with dg=True a twin that couples across facets."""
+        if not dg or self.flags.get("dgjumps"):
+            return self.fes
+        if self._dg is None:
+            self._dg = make_fespace(self.mesh.ngs, self.ufl_element(), dgjumps=True, **self.flags)
+        return self._dg
+
+    def __call__(self):
+        return self
+
+    def dim(self):
+        return self.fes.ndof
+
+    def num_sub_spaces(self):
+        return len(self.ufl_element().sub_elements)
+
+    def sub(self, i):
+        return SubSpace(self, (i,))
+
+    def dof_range(self):
+        return range(self.fes.ndof)
+
+    @property
+    def root(self):
+        return self
+
+    def collapse(self):
+        return self
+
+    def __mul__(self, other):
+        return MixedFunctionSpace([self, other])
+
+
+def _flat_elements(element):
+    return list(element.sub_elements) if isinstance(element, MixedElement) else [element]
+
+
+def MixedFunctionSpace(spaces):
+    """Product of spaces, also available as ``V * Q``."""
+    elements, flags = [], {}
+    for V in spaces:
+        elements += _flat_elements(V.ufl_element())
+        flags.update(V.flags)
+    return FunctionSpace(spaces[0].mesh, MixedElement(elements), **flags)
+
+
+def VectorFunctionSpace(mesh, family, degree=None, dim=None, **flags):
+    if isinstance(family, (tuple, list)):
+        family, degree = family[:2]
+    return FunctionSpace(mesh, family, degree, shape=(dim or mesh.dim,), **flags)
+
+
+def TensorFunctionSpace(mesh, family, degree=None, shape=None, **flags):
+    if isinstance(family, (tuple, list)):
+        family, degree = family[:2]
+    return FunctionSpace(mesh, family, degree, shape=shape or (mesh.dim, mesh.dim), **flags)
+
+
+class SubSpace:
+    """View of a component of a space, used for boundary conditions."""
+
+    def __init__(self, root, path):
+        self.root, self.path, self.mesh = root, tuple(path), root.mesh
+
+    def _walk(self):
+        fes, element, start = self.root.fes, self.root.ufl_element(), 0
+        for i in self.path:
+            start += fes.Range(i).start
+            fes, element = fes.components[i], element.sub_elements[i]
+        return fes, element, start
+
+    @property
+    def fes(self):
+        return self._walk()[0]
+
+    def ufl_element(self):
+        return self._walk()[1]
+
+    def dof_range(self):
+        fes, _, start = self._walk()
+        return range(start, start + fes.ndof)
+
+    def sub(self, i):
+        return SubSpace(self.root, self.path + (i,))
+
+    def collapse(self):
+        return FunctionSpace(self.mesh, self.ufl_element(), **self.root.flags)
+
+
+class _Sym:
+    """Lets numpy style callables (``lambda x: np.sin(x[0])``) build UFL expressions."""
+
+    __array_priority__ = 1000
+
+    def __init__(self, e):
+        self.e = e
+
+    def __getitem__(self, i):
+        return _Sym(self.e[i])
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kw):
+        if method != "__call__" or ufunc.__name__ not in _UFUNCS:
+            return NotImplemented
+        return _Sym(_UFUNCS[ufunc.__name__](*inputs))
+
+    def __array_function__(self, func, types, args, kwargs):
+        if func.__name__ == "where" and len(args) == 3:
+            return _Sym(ufl.conditional(_cond(args[0]), _unwrap(args[1]), _unwrap(args[2])))
+        if func.__name__ in ("zeros_like", "ones_like", "full_like"):
+            value = {"zeros_like": 0.0, "ones_like": 1.0}.get(func.__name__, args[1] if len(args) > 1 else kwargs.get("fill_value"))
+            return _Sym(ufl.as_ufl(float(value)))
+        if func.__name__ in ("stack", "vstack", "array", "asarray"):
+            return _Sym(_unwrap(list(args[0])))
+        return NotImplemented
+
+
+def _is_cond(e):
+    return isinstance(e, ufl.classes.Condition)
+
+
+def _unwrap(a):
+    if isinstance(a, _Sym):
+        return ufl.conditional(a.e, 1.0, 0.0) if _is_cond(a.e) else a.e
+    if isinstance(a, np.generic):
+        return a.item()
+    if isinstance(a, np.ndarray):
+        a = a.tolist()
+    if isinstance(a, (tuple, list)):
+        return ufl.as_tensor([_unwrap(b) for b in a])
+    return a
+
+
+def _cond(a):
+    if isinstance(a, _Sym) and _is_cond(a.e):
+        return a.e
+    return ufl.ne(_unwrap(a), 0)
+
+
+_UFUNCS = {
+    "sin": ufl.sin, "cos": ufl.cos, "tan": ufl.tan, "exp": ufl.exp, "log": ufl.ln, "sqrt": ufl.sqrt,
+    "absolute": abs, "arctan": ufl.atan, "arcsin": ufl.asin, "arccos": ufl.acos, "sinh": ufl.sinh,
+    "cosh": ufl.cosh, "tanh": ufl.tanh, "arctan2": ufl.atan2, "maximum": ufl.max_value,
+    "minimum": ufl.min_value, "add": lambda a, b: a + b, "subtract": lambda a, b: a - b,
+    "multiply": lambda a, b: a * b, "true_divide": lambda a, b: a / b, "power": lambda a, b: a ** b,
+    "negative": lambda a: -a, "square": lambda a: a * a,
+    "less": ufl.lt, "less_equal": ufl.le, "greater": ufl.gt, "greater_equal": ufl.ge,
+}
+_UFUNCS = {k: (lambda f: lambda *args: f(*map(_unwrap, args)))(v) for k, v in _UFUNCS.items()}
+_UFUNCS.update({
+    "logical_and": lambda a, b: ufl.And(_cond(a), _cond(b)),
+    "logical_or": lambda a, b: ufl.Or(_cond(a), _cond(b)),
+    "logical_not": lambda a: ufl.Not(_cond(a)),
+    "bitwise_and": lambda a, b: ufl.And(_cond(a), _cond(b)),
+    "bitwise_or": lambda a, b: ufl.Or(_cond(a), _cond(b)),
+})
+
+
+def _binop(expr):
+    def op(self, other):
+        return _Sym(expr(_unwrap(self), _unwrap(other)))
+    return op
+
+
+for _n, _f in {"add": lambda a, b: a + b, "radd": lambda a, b: b + a, "sub": lambda a, b: a - b,
+               "rsub": lambda a, b: b - a, "mul": lambda a, b: a * b, "rmul": lambda a, b: b * a,
+               "truediv": lambda a, b: a / b, "rtruediv": lambda a, b: b / a,
+               "pow": lambda a, b: a ** b, "rpow": lambda a, b: b ** a,
+               "lt": ufl.lt, "le": ufl.le, "gt": ufl.gt, "ge": ufl.ge}.items():
+    setattr(_Sym, f"__{_n}__", _binop(_f))
+_Sym.__neg__ = lambda self: _Sym(-_unwrap(self))
+_Sym.__abs__ = lambda self: _Sym(abs(_unwrap(self)))
+_Sym.__and__ = lambda self, other: _Sym(ufl.And(_cond(self), _cond(other)))
+_Sym.__or__ = lambda self, other: _Sym(ufl.Or(_cond(self), _cond(other)))
+_Sym.__invert__ = lambda self: _Sym(ufl.Not(_cond(self)))
+
+
+def set_values(gf, cf, element, definedon=None):
+    """Canonical (commuting) interpolation for H(curl) and H(div), local projection otherwise."""
+    kw = {} if definedon is None else {"definedon": definedon}
+    if getattr(element, "family", None) in ("N1curl", "N2curl", "RT", "BDM"):
+        try:
+            gf.Interpolate(cf, **kw)
+            return
+        except Exception:
+            pass
+    gf.Set(cf, **kw)
+
+
+def as_cf(g, mesh, shape=()):
+    """Number, tuple, callable, UFL expression or NGSolve CF -> CoefficientFunction."""
+    if isinstance(g, ngs.CoefficientFunction):
+        return g
+    if callable(g) and not isinstance(g, ufl.core.expr.Expr):
+        g = _unwrap(g(_Sym(ufl.SpatialCoordinate(mesh.ufl_domain()))))
+    if isinstance(g, numbers.Number):
+        if not shape:
+            return ngs.CF(float(g))
+        g = np.full(shape, float(g))
+    if isinstance(g, (tuple, list, np.ndarray)):
+        arr = np.asarray(g)
+        if arr.dtype != object:
+            cf = ngs.CF(tuple(float(v) for v in arr.flat))
+            return cf if arr.ndim == 1 else cf.Reshape(arr.shape)
+        g = ufl.as_tensor(g)
+    cf = translate(g, mesh)
+    return ngs.CF(cf) if isinstance(cf, numbers.Number) else cf
+
+
+def to_cf(expr, mesh=None):
+    """Translate a UFL expression (without trial/test functions) to an NGSolve CF."""
+    if mesh is None:
+        try:
+            mesh = ufl.domain.extract_unique_domain(expr).ufl_cargo()
+        except Exception:
+            mesh = default_mesh()
+    return as_cf(expr, mesh)
+
+
+class Function(ufl.Coefficient):
+    """A finite element function, backed by an NGSolve GridFunction (``u.gf``)."""
+
+    def __init__(self, V, name=None, gf=None):
+        super().__init__(V)
+        self.name = name or "u"
+        self.gf = gf if gf is not None else ngs.GridFunction(V.fes, name=self.name)
+        self._field = None
+        self._subs = None
+
+    @property
+    def function_space(self):
+        """The space; works as attribute (DOLFINx) and as method call (Firedrake)."""
+        return self.ufl_function_space()
+
+    def _ngs_field(self):
+        if self._field is None:
+            el = self.ufl_element()
+            if isinstance(el, MixedElement):
+                parts = [Part(c, e) for c, e in zip(self.gf.components, el.sub_elements)]
+            else:
+                parts = [Part(self.gf, el)]
+            self._field = Field(parts, el)
+        return self._field
+
+    @property
+    def cf(self):
+        """NGSolve CoefficientFunction of the function (all components for a mixed one)."""
+        fld = self._ngs_field()
+        return fld.flat_value(None) if fld.mixed else self.gf
+
+    @property
+    def vec(self):
+        return self.gf.vec
+
+    def vector(self):
+        return self.gf.vec
+
+    @property
+    def array(self):
+        return self.gf.vec.FV().NumPy()
+
+    @property
+    def subfunctions(self):
+        if self._subs is None:
+            V = self.function_space()
+            self._subs = tuple(Function(V.sub(i).collapse(), name=f"{self.name}_{i}", gf=c)
+                               for i, c in enumerate(self.gf.components))
+        return self._subs
+
+    def sub(self, i):
+        return self.subfunctions[i]
+
+    def split(self):
+        return self.subfunctions
+
+    def interpolate(self, expr):
+        """Set the function from an expression.
+
+        H(curl) and H(div) spaces use NGSolve's canonical interpolation, which commutes
+        with curl and div; the others a local L2 projection followed by averaging.
+        """
+        V = self.function_space()
+        cf = as_cf(expr, V.mesh, V.value_shape)
+        if not isinstance(V.ufl_element(), MixedElement):
+            set_values(self.gf, cf, V.ufl_element())
+            return self
+        fld = self._ngs_field()
+        for part, lo, hi in zip(fld.parts, fld.offsets, fld.offsets[1:]):
+            shape = part.element.shape
+            c = cf[lo] if not shape else ngs.CF(tuple(cf[i] for i in range(lo, hi)))
+            set_values(part.cf, c.Reshape(shape) if len(shape) > 1 else c, part.element)
+        return self
+
+    def assign(self, other):
+        if isinstance(other, Function):
+            self.gf.vec.data = other.gf.vec
+        elif isinstance(other, numbers.Number) and other == 0:
+            self.gf.vec[:] = 0.0
+        else:
+            self.interpolate(other)
+        return self
+
+    def copy(self, deepcopy=True):
+        f = Function(self.function_space(), name=self.name)
+        f.gf.vec.data = self.gf.vec
+        return f
+
+    def at(self, *point):
+        """Value at a point ``u.at(x, y)``, or at many: ``u.at(points)`` with shape (n, dim)."""
+        m = self.function_space().mesh.ngs
+        if len(point) == 1 and not isinstance(point[0], numbers.Number):
+            p = np.asarray(point[0], dtype=float)
+            if p.ndim == 2:
+                vals = np.asarray(self.cf(m(*p.T)))
+                return vals[:, 0] if vals.shape[1] == 1 else vals
+            point = tuple(p)
+        return self.cf(m(*point))
+
+    def __call__(self, *args, **kwargs):
+        if len(args) == 1 and args[0] in ("+", "-"):
+            return super().__call__(*args, **kwargs)
+        return self.at(*args)
+
+
+class ExternalFunction(ufl.Coefficient):
+    """An NGSolve CoefficientFunction as a UFL coefficient, see `from_cf`."""
+
+    def __init__(self, cf, mesh, degree):
+        shape = tuple(cf.dims) if cf.dim > 1 else ()
+        super().__init__(ufl.FunctionSpace(mesh.ufl_domain(), FiniteElement("DG", mesh.ufl_cell(), degree, shape=shape)))
+        self.cf = cf
+
+    def _ngs_field(self):
+        return Field([Part(self.cf, self.ufl_element())], self.ufl_element())
+
+
+def from_cf(cf, mesh=None, degree=1):
+    """Use an NGSolve CoefficientFunction inside UFL forms.
+
+    `degree` is the polynomial degree UFL assumes when it picks the quadrature order.
+    """
+    return ExternalFunction(ngs.CF(cf), mesh or default_mesh(), degree)
+
+
+def material_function(mesh, values, default=0.0):
+    """Piecewise constant coefficient given by material name: ``{"steel": 210e9, "air": 1}``."""
+    return from_cf(mesh.ngs.MaterialCF(values, default=default), mesh, degree=0)
+
+
+class Constant(ufl.Constant):
+    """``Constant(value)`` or ``Constant(mesh, value)``; change it with ``assign``."""
+
+    def __init__(self, *args, domain=None):
+        if len(args) == 2:
+            domain, value = args
+        else:
+            value, = args
+        mesh = domain if domain is not None else default_mesh()
+        arr = np.asarray(value, dtype=float)
+        super().__init__(mesh.ufl_domain(), arr.shape)
+        self._params = [ngs.Parameter(float(v)) for v in arr.flat]
+        if arr.ndim == 0:
+            self._cf = self._params[0]
+        else:
+            self._cf = ngs.CF(tuple(self._params))
+            if arr.ndim > 1:
+                self._cf = self._cf.Reshape(arr.shape)
+
+    def _ngs_cf(self):
+        return self._cf
+
+    def assign(self, value):
+        arr = np.asarray(value, dtype=float)
+        if arr.shape != self.ufl_shape:
+            raise ValueError(f"cannot assign a value of shape {arr.shape} to a Constant of shape {self.ufl_shape}")
+        for p, v in zip(self._params, arr.flat):
+            p.Set(float(v))
+        return self
+
+    @property
+    def value(self):
+        vals = np.array([p.Get() for p in self._params]).reshape(self.ufl_shape)
+        return float(vals) if not self.ufl_shape else vals
+
+    def __float__(self):
+        return float(self.value)
+
+
+__all__ = ["FunctionSpace", "MixedFunctionSpace", "VectorFunctionSpace", "TensorFunctionSpace",
+           "Function", "Constant", "to_cf", "as_cf", "from_cf", "material_function", "Mesh"]

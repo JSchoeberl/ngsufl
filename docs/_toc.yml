@@ -1,0 +1,29 @@
+format: jb-book
+root: intro
+parts:
+  - caption: First steps
+    chapters:
+      - file: tutorials/poisson
+      - file: tutorials/membrane
+      - file: tutorials/heat
+      - file: tutorials/nonlinear_poisson
+      - file: tutorials/boundary_conditions
+      - file: tutorials/convergence
+  - caption: Mechanics and flow
+    chapters:
+      - file: tutorials/elasticity
+      - file: tutorials/hyperelasticity
+      - file: tutorials/stokes
+      - file: tutorials/navier_stokes
+  - caption: Mixed and discontinuous methods
+    chapters:
+      - file: tutorials/mixed_poisson
+      - file: tutorials/dg_poisson
+      - file: tutorials/biharmonic
+      - file: tutorials/cahn_hilliard
+      - file: tutorials/maxwell
+  - caption: Reference
+    chapters:
+      - file: api
+      - file: howitworks
+      - file: status
