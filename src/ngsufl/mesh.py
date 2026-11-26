@@ -19,16 +19,26 @@ def default_mesh():
     return _last_mesh
 
 
+class _Count(int):
+    """An int that may also be called, ``mesh.num_cells`` and ``mesh.num_cells()``."""
+
+    def __call__(self):
+        return int(self)
+
+
 class Mesh:
     """An NGSolve mesh that UFL accepts as a domain.
 
     Takes an ``ngsolve.Mesh``, a Netgen mesh, or a mesh file name.
     Subdomains and boundaries are addressed by their NGSolve names
-    (``ds("left|right")``) or by 1-based index (``ds(2)``).
+    (``ds("left|right")``) or by number (``ds(2)``).  The numbers are the
+    `markers` of the mesh (the built-in meshes use Firedrake's), and the
+    1-based NGSolve index if the mesh has no markers.
     """
 
-    def __init__(self, mesh):
+    def __init__(self, mesh, markers=None):
         global _last_mesh
+        self.markers = dict(markers or {})
         if not isinstance(mesh, ngs.Mesh):
             mesh = ngs.Mesh(mesh)
         self.ngs = mesh
@@ -49,8 +59,23 @@ class Mesh:
     def ufl_cell(self):
         return self._ufl.ufl_cell()
 
+    def __call__(self):
+        return self
+
+    @property
     def geometric_dimension(self):
-        return self.dim
+        return _Count(self.dim)
+
+    topological_dimension = geometric_dimension
+
+    @property
+    def coordinates(self):
+        """Vertex coordinates as a piecewise linear vector Function."""
+        if "coordinates" not in self._quantities:
+            from .function import Function, VectorFunctionSpace
+            X = Function(VectorFunctionSpace(self, "CG", 1), name="coordinates")
+            self._quantities["coordinates"] = X.interpolate(ufl.SpatialCoordinate(self._ufl))
+        return self._quantities["coordinates"]
 
     @property
     def boundaries(self):
@@ -62,11 +87,11 @@ class Mesh:
 
     @property
     def num_cells(self):
-        return self.ngs.ne
+        return _Count(self.ngs.ne)
 
     @property
     def num_vertices(self):
-        return self.ngs.nv
+        return _Count(self.ngs.nv)
 
     @property
     def boundary_names(self):
@@ -79,8 +104,11 @@ class Mesh:
         return self._quantities[key]
 
     def boundary_ids(self, pattern):
-        """1-based ids of all boundaries whose name matches the regexp."""
+        """Numbers of all boundaries whose name matches the regexp."""
         mask = self.ngs.Boundaries(pattern).Mask()
+        if self.markers:
+            hit = {n for n, b in zip(self.ngs.GetBoundaries(), mask) if b}
+            return tuple(sorted(i for i, name in self.markers.items() if name in hit))
         return tuple(i + 1 for i, b in enumerate(mask) if b)
 
     def curve(self, order):
@@ -97,6 +125,10 @@ class Mesh:
         for s in sid if isinstance(sid, (tuple, list)) else (sid,):
             if isinstance(s, str):
                 r = get(s)
+            elif vb == ngs.BND and self.markers:
+                if s not in self.markers:
+                    raise ValueError(f"boundary id {s} is not one of {sorted(self.markers)}")
+                r = get(self.markers[s])
             else:
                 if not 1 <= s <= len(names):
                     raise ValueError(f"subdomain id {s} out of range 1..{len(names)}")
@@ -142,34 +174,93 @@ def _cell_measure(name, p):
     raise NotImplementedError(name)
 
 
-def IntervalMesh(n, a=0.0, b=1.0):
-    """Interval [a, b] with boundaries 'left', 'right'."""
-    return Mesh(ngmeshes.Make1DMesh(n, mapping=lambda x: a + (b - a) * x))
+_PARALLEL = {"reorder", "distribution_parameters", "comm", "name", "distribution_name", "permutation_name"}
 
 
-def UnitIntervalMesh(n):
-    return IntervalMesh(n)
+def _accept(kw):
+    bad = set(kw) - _PARALLEL
+    if bad:
+        raise TypeError(f"unexpected keyword arguments {sorted(bad)}")
 
 
-def RectangleMesh(nx, ny, Lx=1.0, Ly=1.0, quadrilateral=False, origin=(0.0, 0.0)):
-    """Rectangle with boundaries 'bottom', 'right', 'top', 'left'."""
-    ox, oy = origin
-    m = ngmeshes.MakeStructured2DMesh(quads=quadrilateral, nx=nx, ny=ny,
-                                      mapping=lambda x, y: (ox + Lx * x, oy + Ly * y))
-    return Mesh(m)
+def _flip(diagonal, quadrilateral):
+    if quadrilateral:
+        if diagonal is not None:
+            raise ValueError("Cannot specify slope of diagonal on quad meshes")
+        return False
+    if diagonal in (None, "left", "right"):
+        return diagonal == "right"
+    raise NotImplementedError(f"diagonal='{diagonal}'")
 
 
-def UnitSquareMesh(nx, ny, quadrilateral=False):
-    return RectangleMesh(nx, ny, quadrilateral=quadrilateral)
+def interval(n, a, b, cls=None, **kw):
+    return (cls or Mesh)(ngmeshes.Make1DMesh(n, mapping=lambda x: a + (b - a) * x), **kw)
 
 
-def BoxMesh(nx, ny, nz, Lx=1.0, Ly=1.0, Lz=1.0, hexahedral=False, origin=(0.0, 0.0, 0.0)):
-    """Box with boundaries 'back' (x=0), 'front' (x=Lx), 'left' (y=0), 'right' (y=Ly), 'bottom', 'top'."""
+def rectangle(nx, ny, p0, p1, quads=False, flip=False, cls=None, **kw):
+    (x0, y0), (x1, y1) = p0, p1
+    m = ngmeshes.MakeStructured2DMesh(quads=quads, nx=nx, ny=ny, flip_triangles=flip,
+                                      mapping=lambda x, y: (x0 + (x1 - x0) * x, y0 + (y1 - y0) * y))
+    return (cls or Mesh)(m, **kw)
+
+
+def box(nx, ny, nz, p0, p1, hexes=False, cls=None, **kw):
+    (x0, y0, z0), (x1, y1, z1) = p0, p1
+    m = ngmeshes.MakeStructured3DMesh(hexes=hexes, nx=nx, ny=ny, nz=nz,
+                                      mapping=lambda x, y, z: (x0 + (x1 - x0) * x, y0 + (y1 - y0) * y, z0 + (z1 - z0) * z))
+    return (cls or Mesh)(m, **kw)
+
+
+_M1 = {1: "left", 2: "right"}
+_M2 = {1: "left", 2: "right", 3: "bottom", 4: "top"}
+_M3 = {1: "back", 2: "front", 3: "left", 4: "right", 5: "bottom", 6: "top"}
+
+
+def IntervalMesh(ncells, length_or_left=1.0, right=None, **kw):
+    """Interval [0, length] or [left, right]; boundary 1 is the left point, 2 the right."""
+    _accept(kw)
+    a, b = (0.0, length_or_left) if right is None else (length_or_left, right)
+    return interval(ncells, a, b, markers=_M1)
+
+
+def UnitIntervalMesh(ncells, **kw):
+    return IntervalMesh(ncells, 1.0, **kw)
+
+
+def RectangleMesh(nx, ny, Lx=1.0, Ly=1.0, originX=0.0, originY=0.0, quadrilateral=False, diagonal=None, **kw):
+    """Rectangle with corners (originX, originY) and (Lx, Ly).
+
+    Boundaries: 1: x == originX, 2: x == Lx, 3: y == originY, 4: y == Ly,
+    or by name 'left', 'right', 'bottom', 'top'.
+    """
+    _accept(kw)
+    return rectangle(nx, ny, (originX, originY), (Lx, Ly), quadrilateral, _flip(diagonal, quadrilateral), markers=_M2)
+
+
+def SquareMesh(nx, ny, L, quadrilateral=False, diagonal=None, **kw):
+    return RectangleMesh(nx, ny, L, L, quadrilateral=quadrilateral, diagonal=diagonal, **kw)
+
+
+def UnitSquareMesh(nx, ny, quadrilateral=False, diagonal=None, **kw):
+    return RectangleMesh(nx, ny, 1.0, 1.0, quadrilateral=quadrilateral, diagonal=diagonal, **kw)
+
+
+def BoxMesh(nx, ny, nz, Lx=1.0, Ly=1.0, Lz=1.0, hexahedral=False, origin=(0.0, 0.0, 0.0), **kw):
+    """Box of extent Lx, Ly, Lz.
+
+    Boundaries: 1: x == 0, 2: x == Lx, 3: y == 0, 4: y == Ly, 5: z == 0, 6: z == Lz,
+    or by name 'back', 'front', 'left', 'right', 'bottom', 'top'.
+    """
+    if kw.pop("diagonal", "default") != "default":
+        raise NotImplementedError("diagonal of a box mesh")
+    _accept(kw)
     ox, oy, oz = origin
-    m = ngmeshes.MakeStructured3DMesh(hexes=hexahedral, nx=nx, ny=ny, nz=nz,
-                                      mapping=lambda x, y, z: (ox + Lx * x, oy + Ly * y, oz + Lz * z))
-    return Mesh(m)
+    return box(nx, ny, nz, origin, (ox + Lx, oy + Ly, oz + Lz), hexahedral, markers=_M3)
 
 
-def UnitCubeMesh(nx, ny, nz, hexahedral=False):
-    return BoxMesh(nx, ny, nz, hexahedral=hexahedral)
+def CubeMesh(nx, ny, nz, L, hexahedral=False, **kw):
+    return BoxMesh(nx, ny, nz, L, L, L, hexahedral=hexahedral, **kw)
+
+
+def UnitCubeMesh(nx, ny, nz, hexahedral=False, **kw):
+    return BoxMesh(nx, ny, nz, hexahedral=hexahedral, **kw)

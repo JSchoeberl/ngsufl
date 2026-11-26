@@ -22,13 +22,15 @@
 # the right-hand side as a *natural* condition, while the flux condition is *essential* and
 # has to be imposed on the $H(\mathrm{div})$ space.
 #
-# We use the manufactured solution $u_e = \cos(\pi x)\sin(2\pi y)$.
+# We use the manufactured solution $u_e = \cos(\pi x)\sin(2\pi y)$.  The front end follows the
+# Firedrake API.  The sides of `UnitSquareMesh` are numbered as in Firedrake: 1 ($x=0$), 2 ($x=1$),
+# 3 ($y=0$), 4 ($y=1$), so $\Gamma_D$ is 1 and 2, $\Gamma_N$ is 3 and 4.
 
 # %% [markdown]
 # ## Mixed space and forms
 #
 # The flux lives in Raviart-Thomas elements of degree $k$ (degree 1 is the lowest order
-# element, as in FEniCS), the potential in discontinuous Lagrange elements of degree $k-1$.
+# element, as in Firedrake), the potential in discontinuous Lagrange elements of degree $k-1$.
 # The product `V * Q` creates the mixed space.
 
 # %%
@@ -41,20 +43,20 @@ def solve_mixed(n, k, family="RT"):
     Q = FunctionSpace(mesh, "DG", k - 1)
     W = V * Q
 
-    x = SpatialCoordinate(mesh)
-    u_e = cos(pi * x[0]) * sin(2 * pi * x[1])
+    x, y = SpatialCoordinate(mesh)
+    u_e = cos(pi * x) * sin(2 * pi * y)
     f = -div(grad(u_e))
     nrm = FacetNormal(mesh)
 
     (sigma, u), (tau, v) = TrialFunctions(W), TestFunctions(W)
     a = (inner(sigma, tau) + u * div(tau) + v * div(sigma)) * dx
-    L = -f * v * dx + u_e * dot(tau, nrm) * ds("left|right")
+    L = -f * v * dx + u_e * dot(tau, nrm) * ds((1, 2))
 
     # essential flux condition sigma.n = grad(u_e).n on top and bottom
-    bc = DirichletBC(W.sub(0), grad(u_e), "top|bottom")
+    bc = DirichletBC(W.sub(0), grad(u_e), (3, 4))
 
     w = Function(W, name="w")
-    solve(a == L, w, bc)
+    solve(a == L, w, bcs=bc)
     sigma_h, u_h = w.subfunctions
     return mesh, u_e, sigma_h, u_h
 
@@ -69,11 +71,16 @@ print("L2 error sigma:", errornorm(grad(u_e), sigma_h))
 
 # %%
 import matplotlib.pyplot as plt
+from ngsufl.pyplot import tripcolor
 
 fig, axs = plt.subplots(1, 2, figsize=(9, 3.6))
-plot(u_h, ax=axs[0])
+colors = tripcolor(u_h, axes=axs[0])
+fig.colorbar(colors, ax=axs[0])
+axs[0].set_aspect("equal")
 axs[0].set_title("$u_h$ (DG1)")
-plot(sigma_h, ax=axs[1])
+colors = tripcolor(sigma_h, axes=axs[1])
+fig.colorbar(colors, ax=axs[1])
+axs[1].set_aspect("equal")
 axs[1].set_title(r"$|\sigma_h|$ (RT2)")
 fig.tight_layout();
 
@@ -134,6 +141,6 @@ nrm = FacetNormal(mesh)
 f = -div(grad(u_e))
 print("|| div(sigma_h) - P(-f) || :", norm(div(sigma_h) - project(-f, Q)))
 print("squared normal jump       :", assemble(inner(jump(sigma_h, nrm), jump(sigma_h, nrm)) * dS))
-x = SpatialCoordinate(mesh)
+x, y = SpatialCoordinate(mesh)
 for expr, name in [(sigma_h, "discrete"), (grad(u_e), "exact   ")]:
-    print(f"int x sigma.n over top, {name}:", assemble(x[0] * dot(expr, nrm) * ds("top")))
+    print(f"int x sigma.n over top, {name}:", assemble(x * dot(expr, nrm) * ds(4)))

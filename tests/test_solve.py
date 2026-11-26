@@ -29,7 +29,7 @@ def sq():
 LR = {
     "name": lambda m: "left|right",
     "regexp": lambda m: "l.*|r.*",
-    "id_tuple": lambda m: (4, 2),
+    "id_tuple": lambda m: (1, 2),
     "ids_names": lambda m: m.boundary_ids("left|right"),
     "vectorised": lambda m: (lambda x: isc(x[0], 0.0) | isc(x[0], 1.0)),
     "legacy": lambda m: (lambda x, on_boundary: on_boundary and (abs(x[0]) < 1e-12 or abs(x[0] - 1) < 1e-12)),
@@ -67,7 +67,7 @@ def test_bc_where_on_boundary_and_single_id_name(sq):
 
 def test_bc_dof_counts_and_values(sq):
     V = FunctionSpace(sq, "Lagrange", 1)
-    for where, n in [("left", 5), ("left|right", 10), ("on_boundary", 16), (1, 5), ((1, 3), 10)]:
+    for where, n in [("left", 5), ("left|right", 10), ("on_boundary", 16), (1, 5), ((1, 2), 10)]:
         assert sum(DirichletBC(V, 0.0, where).dofs()) == n
     V2 = FunctionSpace(sq, "Lagrange", 2)
     assert sum(DirichletBC(V2, 0.0, "left").dofs()) == 5 + 4
@@ -889,8 +889,9 @@ def test_norms_expressions():
     assert norm(as_vector((-x[1], x[0])), "Hcurl") == approx(math.sqrt(2 / 3 + 4), rel=1e-12)
     assert norm(x, "Hdiv") == approx(math.sqrt(2 / 3 + 4), rel=1e-12)
     assert norm(x[0] ** 2, "H10") == approx(math.sqrt(4 / 3), rel=1e-12)
+    assert norm(x[0], "L4") == approx(0.2 ** 0.25, rel=1e-12)
     with pytest.raises(ValueError):
-        norm(x[0], "L7")
+        norm(x[0], "W7")
 
 
 def test_norm_of_function_and_vector_function():

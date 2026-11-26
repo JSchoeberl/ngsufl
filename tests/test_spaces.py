@@ -620,7 +620,7 @@ def test_boundary_geometry_unit_square():
 
 
 def test_rectangle_mesh_and_origin():
-    m = RectangleMesh(4, 3, 2.0, 0.5, origin=(-1.0, 3.0))
+    m = RectangleMesh(4, 3, 1.0, 3.5, originX=-1.0, originY=3.0)
     one = Constant(m, 1.0)
     x = SpatialCoordinate(m)
     assert assemble(one * dx(domain=m)) == approx(1.0)
@@ -672,8 +672,8 @@ def test_unit_cube_mesh():
 
 def test_boundary_ids_match_ds_ids():
     m = UnitSquareMesh(2, 2)
-    assert m.boundary_ids("left") == (4,)
-    assert m.boundary_ids("left|top") == (3, 4)
+    assert m.boundary_ids("left") == (1,)
+    assert m.boundary_ids("left|top") == (1, 4)
     assert m.boundary_ids("bottom|right|top|left") == (1, 2, 3, 4)
     assert m.boundary_ids("nothing") == ()
     one = Constant(m, 1.0)
@@ -681,7 +681,8 @@ def test_boundary_ids_match_ds_ids():
         ids = m.boundary_ids(pat)
         assert assemble(one * ds(ids)) == approx(assemble(one * ds(pat)))
     b = BoxMesh(1, 1, 1)
-    assert b.boundary_ids("top") == (b.boundaries.index("top") + 1,)
+    assert b.boundary_ids("top") == (6,)
+    assert b.boundary_ids("back|left") == (1, 3)
 
 
 def test_mesh_materials_default():

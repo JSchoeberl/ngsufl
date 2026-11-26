@@ -23,7 +23,7 @@
 from ngsufl import *
 
 mesh = UnitSquareMesh(16, 16)
-V = FunctionSpace(mesh, "Lagrange", 1)
+V = FunctionSpace(mesh, "CG", 1)
 x = SpatialCoordinate(mesh)
 
 
@@ -40,16 +40,19 @@ bc = DirichletBC(V, u_e, "on_boundary")
 # %% [markdown]
 # ## Newton's method, first variant: no Jacobian given
 #
-# If we do not pass a Jacobian, NGSolve linearises the residual by itself.  We switch on
-# the monitor of the nonlinear solver to see the residual norm in each iteration.
+# If we do not pass a Jacobian, NGSolve linearises the residual by itself (Firedrake
+# would differentiate the form with UFL at this point).  We switch on the monitor of the
+# nonlinear solver with the PETSc option `snes_monitor` to see the residual norm in each
+# iteration.  The iteration count `solver.iterations` is an ngsufl extra; Firedrake
+# provides it as `solver.snes.getIterationNumber()`.
 
 # %%
 u1 = Function(V, name="u_ad")
 F1 = q(u1) * inner(grad(u1), grad(v)) * dx - f * v * dx
 
 solver1 = NonlinearVariationalSolver(
-    NonlinearVariationalProblem(F1, u1, bc),
-    {"snes_monitor": True, "snes_rtol": 1e-10},
+    NonlinearVariationalProblem(F1, u1, bcs=[bc]),
+    solver_parameters={"snes_monitor": True, "snes_rtol": 1e-10},
 )
 solver1.solve()
 print("Newton iterations:", solver1.iterations)
@@ -57,7 +60,7 @@ print("Newton iterations:", solver1.iterations)
 # %% [markdown]
 # ## Second variant: the Jacobian from UFL
 #
-# This is what a FEniCS or Firedrake script does: `derivative(F, u)` produces the
+# This is what a Firedrake script does: `derivative(F, u)` produces the
 # linearised form symbolically, and we hand it to the solver as `J`.
 
 # %%
@@ -66,8 +69,8 @@ F2 = q(u2) * inner(grad(u2), grad(v)) * dx - f * v * dx
 J2 = derivative(F2, u2)
 
 solver2 = NonlinearVariationalSolver(
-    NonlinearVariationalProblem(F2, u2, bc, J=J2),
-    {"snes_monitor": True, "snes_rtol": 1e-10},
+    NonlinearVariationalProblem(F2, u2, bcs=[bc], J=J2),
+    solver_parameters={"snes_monitor": True, "snes_rtol": 1e-10},
 )
 solver2.solve()
 print("Newton iterations:", solver2.iterations)
@@ -97,7 +100,7 @@ u3 = Function(V, name="u_picard")
 F3 = q(u3) * inner(grad(u3), grad(v)) * dx - f * v * dx
 J3 = q(u3) * inner(grad(TrialFunction(V)), grad(v)) * dx
 
-solver3 = NonlinearVariationalSolver(NonlinearVariationalProblem(F3, u3, bc, J=J3), {"snes_rtol": 1e-10})
+solver3 = NonlinearVariationalSolver(NonlinearVariationalProblem(F3, u3, bcs=[bc], J=J3), solver_parameters={"snes_rtol": 1e-10})
 solver3.solve()
 print("Picard iterations:", solver3.iterations, " error vs exact:", errornorm(u_e, u3))
 
@@ -115,13 +118,13 @@ import numpy as np
 
 def solve_for(n):
     mesh = UnitSquareMesh(n, n)
-    V = FunctionSpace(mesh, "Lagrange", 2)
+    V = FunctionSpace(mesh, "CG", 2)
     x = SpatialCoordinate(mesh)
     ue = 1 + sin(pi * x[0]) * x[1]
     f = -div(q(ue) * grad(ue))
     u, v = Function(V), TestFunction(V)
     F = q(u) * inner(grad(u), grad(v)) * dx - f * v * dx
-    solve(F == 0, u, DirichletBC(V, ue, "on_boundary"), J=derivative(F, u))
+    solve(F == 0, u, bcs=[DirichletBC(V, ue, "on_boundary")], J=derivative(F, u))
     return errornorm(ue, u)
 
 

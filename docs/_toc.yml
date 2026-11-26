@@ -22,6 +22,9 @@ parts:
       - file: tutorials/biharmonic
       - file: tutorials/cahn_hilliard
       - file: tutorials/maxwell
+  - caption: Other dialects
+    chapters:
+      - file: tutorials/legacy_fenics
   - caption: Reference
     chapters:
       - file: api

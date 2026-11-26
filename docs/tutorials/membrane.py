@@ -21,11 +21,15 @@
 # `Mesh` accepts any Netgen mesh.  We describe the disk with the OpenCASCADE interface of
 # Netgen, name its boundary `"rim"` and generate a triangulation.  Calling `.curve(3)`
 # maps the elements next to the boundary onto the exact circle with cubic polynomials, so
-# the geometry is not approximated by straight edges.
+# the geometry is not approximated by straight edges.  Boundary names such as `"rim"` are
+# an ngsufl extra; the boundary ids of a mesh from a geometry are the 1-based NGSolve
+# boundary indices, so `"rim"` is also boundary 1.
 
 # %%
+import matplotlib.pyplot as plt
 from netgen.occ import Circle, OCCGeometry
 from ngsufl import *
+from ngsufl.pyplot import tripcolor, triplot
 
 disk = Circle((0, 0), 1).Face()
 disk.edges.name = "rim"
@@ -33,7 +37,9 @@ ngmesh = OCCGeometry(disk, dim=2).GenerateMesh(maxh=0.1)
 mesh = Mesh(ngmesh).curve(3)
 
 print("boundaries:", mesh.boundaries)
-plot(mesh, lw=0.4).set_aspect("equal");
+fig, axes = plt.subplots()
+triplot(mesh, axes=axes, interior_kw={"linewidth": 0.4})
+axes.set_aspect("equal");
 
 # %% [markdown]
 # ## Variational problem
@@ -42,7 +48,7 @@ plot(mesh, lw=0.4).set_aspect("equal");
 # expression of the `SpatialCoordinate`.
 
 # %%
-V = FunctionSpace(mesh, "Lagrange", 2)
+V = FunctionSpace(mesh, "CG", 2)
 w, v = TrialFunction(V), TestFunction(V)
 x = SpatialCoordinate(mesh)
 
@@ -53,15 +59,17 @@ a = inner(grad(w), grad(v)) * dx
 L = p * v * dx
 
 wh = Function(V, name="w")
-solve(a == L, wh, DirichletBC(V, 0.0, "rim"))
+solve(a == L, wh, bcs=[DirichletBC(V, 0.0, "rim")])
 print("dofs:", V.dim())
 
 # %% [markdown]
 # ## Plot of the deflection
 
 # %%
-ax = plot(wh)
-ax.set_aspect("equal");
+fig, axes = plt.subplots()
+colors = tripcolor(wh, axes=axes)
+fig.colorbar(colors)
+axes.set_aspect("equal");
 
 # %% [markdown]
 # ## Deflection and load along a line
@@ -73,7 +81,6 @@ ax.set_aspect("equal");
 
 # %%
 import numpy as np
-import matplotlib.pyplot as plt
 
 ph = Function(V).interpolate(p)
 ys = np.linspace(-0.99, 0.99, 100)
@@ -96,13 +103,13 @@ fig.legend(loc="upper left", bbox_to_anchor=(0.12, 0.88));
 # Two checks.  First, for a constant load $p = 1$ the exact solution on the disk is
 # $w = (1 - r^2)/4$.  On the curved mesh the error is small, which is only possible when
 # the boundary is represented accurately.  Second, we repeat the Gaussian-load
-# computation with plain NGSolve and compare the two deflections.
+# computation with plain NGSolve (a native cross-check, `mesh.ngs` is the NGSolve mesh) and compare the two deflections.
 
 # %%
 r2 = x[0]**2 + x[1]**2
 w_exact = (1 - r2) / 4
 w1 = Function(V)
-solve(a == Constant(1.0) * v * dx, w1, DirichletBC(V, 0.0, "rim"))
+solve(a == Constant(1.0) * v * dx, w1, bcs=[DirichletBC(V, 0.0, "rim")])
 print("constant load, L2 error vs (1-r^2)/4:", errornorm(w_exact, w1))
 
 # %%

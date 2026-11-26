@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ngsufl"
-version = "0.1.0"
+version = "0.2.0"
 description = "The Unified Form Language (UFL) on the NGSolve finite element core"
 readme = "README.md"
 license = { text = "MIT" }

@@ -19,14 +19,14 @@
 # %% [markdown]
 # ## Mesh, space and material
 #
-# The beam $(0,1)\times(0,0.2)\times(0,0.2)$ is clamped at the face `back` ($x=0$).  The unknown is a
+# The beam $(0,1)\times(0,0.2)\times(0,0.2)$ is clamped at the face with number 1 ($x=0$); as in Firedrake the faces of a `BoxMesh` are numbered 1 ($x=0$), 2 ($x=1$), 3 ($y=0$), 4 ($y=0.2$), 5 ($z=0$), 6 ($z=0.2$).  The unknown is a
 # vector valued second order function; since the problem is nonlinear it is a `Function`, not a `TrialFunction`.
 
 # %%
 from ngsufl import *
 
 mesh = BoxMesh(8, 2, 2, 1.0, 0.2, 0.2)
-V = VectorFunctionSpace(mesh, "Lagrange", 2)
+V = VectorFunctionSpace(mesh, "CG", 2)
 u = Function(V, name="u")
 v = TestFunction(V)
 du = TrialFunction(V)
@@ -57,7 +57,7 @@ def potential_energy(u):
     F = Identity(len(u)) + grad(u)
     J = det(F)
     psi = (mu / 2) * (tr(F.T * F) - 3) - mu * ln(J) + (lmbda / 2) * ln(J)**2
-    return psi * dx(degree=4) - step * dot(B, u) * dx - step * dot(T, u) * ds("front")
+    return psi * dx(degree=4) - step * dot(B, u) * dx - step * dot(T, u) * ds(2)
 
 
 Pi = potential_energy(u)
@@ -72,9 +72,10 @@ jacobian = derivative(residual, u, du)
 # reports the number of Newton iterations.
 
 # %%
-bc = DirichletBC(V, (0.0, 0.0, 0.0), "back")
-problem = NonlinearVariationalProblem(residual, u, bc, J=jacobian)
-solver = NonlinearVariationalSolver(problem, {"snes_rtol": 1e-10, "snes_atol": 1e-10})
+bc = DirichletBC(V, Constant((0.0, 0.0, 0.0)), 1)
+problem = NonlinearVariationalProblem(residual, u, bcs=bc, J=jacobian)
+parameters = {"snes_rtol": 1e-10, "snes_atol": 1e-10}
+solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
 
 nsteps = 5
 for k in range(1, nsteps + 1):
@@ -93,8 +94,8 @@ for k in range(1, nsteps + 1):
 # %%
 u2 = Function(V, name="u2")
 res2 = derivative(potential_energy(u2), u2, v)
-solver2 = NonlinearVariationalSolver(NonlinearVariationalProblem(res2, u2, bc),
-                                     {"snes_rtol": 1e-10, "snes_atol": 1e-10})
+solver2 = NonlinearVariationalSolver(NonlinearVariationalProblem(res2, u2, bcs=bc),
+                                     solver_parameters=parameters)
 solver2.solve()
 print("Newton iterations without J:", solver2.iterations)
 print("tip, UFL Jacobian :", u.at(1.0, 0.1, 0.1))
@@ -104,6 +105,7 @@ print("difference of the two solutions (L2):", errornorm(u, u2))
 # %% [markdown]
 # ## Deformed beam
 #
+# `plot` is an ngsufl convenience for 3D results (Firedrake would write a VTK file).
 # The deflection is a sizeable fraction of the beam length, and the tip has moved towards the
 # clamp in $x$ (see the first tip component above), which a linear model cannot capture.
 

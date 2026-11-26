@@ -26,7 +26,7 @@
 #
 # The boundary terms are Nitsche's way of imposing $u=g$ weakly, so there is no
 # `DirichletBC`.  The penalty parameter $\alpha$ has to grow with the polynomial degree $k$;
-# we use $\alpha = 10\,k^2$.
+# we use $\alpha = 10\,k^2$.  The front end follows the Firedrake API.
 
 # %% [markdown]
 # ## Forms
@@ -43,12 +43,12 @@ def solve_sipg(n, k):
     mesh = UnitSquareMesh(n, n)
     V = FunctionSpace(mesh, "DG", k)
     u, v = TrialFunction(V), TestFunction(V)
-    x = SpatialCoordinate(mesh)
+    x, y = SpatialCoordinate(mesh)
     nrm, h = FacetNormal(mesh), CellDiameter(mesh)
     h_avg = avg(h)
     alpha = Constant(10.0 * k**2)
 
-    u_e = sin(2 * pi * x[0]) * cos(pi * x[1]) + x[0] * x[1]
+    u_e = sin(2 * pi * x) * cos(pi * y) + x * y
     f = -div(grad(u_e))
 
     a = (inner(grad(u), grad(v)) * dx
@@ -73,12 +73,18 @@ print("H1 error:", errornorm(u_e, uh, "H1"))
 
 # %%
 import matplotlib.pyplot as plt
+from ngsufl.pyplot import tripcolor, triplot
 
 fig, axs = plt.subplots(1, 2, figsize=(9, 3.6))
-plot(uh, ax=axs[0], subdivision=6)
-plot(mesh, ax=axs[0], lw=0.3)
+colors = tripcolor(uh, axes=axs[0], num_sample_points=6)
+fig.colorbar(colors, ax=axs[0])
+triplot(mesh, axes=axs[0], interior_kw={"linewidth": 0.3})
+axs[0].set_aspect("equal")
 axs[0].set_title("$u_h$ (DG2, 8x8 mesh)")
-plot(uh - u_e, ax=axs[1], subdivision=6)
+error = Function(FunctionSpace(mesh, "DG", 4)).interpolate(uh - u_e)
+colors = tripcolor(error, axes=axs[1], num_sample_points=6)
+fig.colorbar(colors, ax=axs[1])
+axs[1].set_aspect("equal")
 axs[1].set_title("$u_h - u_e$");
 
 # %% [markdown]
@@ -117,20 +123,22 @@ ax.legend();
 #
 # The scheme is consistent: if the exact solution lies in $V_h$ it is reproduced.  We test
 # this with a polynomial of degree 2 and $k=2$.  A second property of the symmetric method
-# is that the discrete problem is symmetric, which we verify on the assembled matrix.
+# is that the discrete problem is symmetric, which we verify on the assembled matrix.  `assemble`
+# returns a `Matrix` wrapper whose NGSolve matrix is `.mat`; reading it out as a scipy matrix is
+# an NGSolve extra.
 
 # %%
 mesh = UnitSquareMesh(6, 6)
 V = FunctionSpace(mesh, "DG", 2)
 u, v = TrialFunction(V), TestFunction(V)
-x = SpatialCoordinate(mesh)
+x, y = SpatialCoordinate(mesh)
 nrm, h = FacetNormal(mesh), CellDiameter(mesh)
 alpha = Constant(40.0)
 a = (inner(grad(u), grad(v)) * dx
      - inner(avg(grad(u)), jump(v, nrm)) * dS - inner(jump(u, nrm), avg(grad(v))) * dS
      + alpha / avg(h) * inner(jump(u, nrm), jump(v, nrm)) * dS
      - inner(grad(u), nrm) * v * ds - u * inner(grad(v), nrm) * ds + alpha / h * u * v * ds)
-p = 1 + x[0] ** 2 - x[0] * x[1] + 2 * x[1] ** 2
+p = 1 + x**2 - x * y + 2 * y**2
 L = (-div(grad(p)) * v * dx - p * inner(grad(v), nrm) * ds + alpha / h * p * v * ds)
 uh = Function(V)
 solve(a == L, uh)
@@ -138,6 +146,6 @@ print("reproduction error:", errornorm(p, uh))
 
 A = assemble(a)
 import scipy.sparse as sp
-rows, cols, vals = A.COO()
+rows, cols, vals = A.mat.COO()
 M = sp.coo_matrix((vals, (rows, cols))).tocsr()
 print("max |A - A^T|     :", abs(M - M.T).max(), "  max |A| :", abs(M).max())

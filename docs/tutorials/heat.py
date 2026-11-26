@@ -28,7 +28,7 @@
 from ngsufl import *
 
 mesh = UnitSquareMesh(10, 10)
-V = FunctionSpace(mesh, "Lagrange", 2)
+V = FunctionSpace(mesh, "CG", 2)
 x = SpatialCoordinate(mesh)
 
 alpha, beta = 3.0, 1.2
@@ -52,16 +52,16 @@ a, L = lhs(F), rhs(F)
 
 uh = Function(V, name="u")
 bc = DirichletBC(V, u_e, "on_boundary")
-problem = LinearVariationalProblem(a, L, uh, bc, constant_jacobian=True)
+problem = LinearVariationalProblem(a, L, uh, bcs=[bc], constant_jacobian=True)
 solver = LinearVariationalSolver(problem)
 
 # %%
 for n in range(10):
-    t.assign(t.value + dt)
+    t.assign(float(t) + dt)
     solver.solve()
     u_n.assign(uh)
 
-print(f"t = {t.value:.2f}")
+print(f"t = {float(t):.2f}")
 print("L2 error at final time:", errornorm(u_e, uh))
 
 # %% [markdown]
@@ -79,11 +79,12 @@ print("L2 error at final time:", errornorm(u_e, uh))
 #
 # $$ u(x, y, t) = \frac{1}{1 + 4at}\, \exp\!\Big(-\frac{a\,(x^2 + y^2)}{1 + 4at}\Big) , $$
 #
-# which we use as a reference.  `RectangleMesh` takes an `origin`.
+# which we use as a reference.  As in Firedrake, `RectangleMesh(nx, ny, Lx, Ly, originX=..., originY=...)`
+# takes the upper right corner $(L_x, L_y)$ and the lower left corner as origin.
 
 # %%
-mesh = RectangleMesh(40, 40, 4.0, 4.0, origin=(-2.0, -2.0))
-V = FunctionSpace(mesh, "Lagrange", 2)
+mesh = RectangleMesh(40, 40, 2.0, 2.0, originX=-2.0, originY=-2.0)
+V = FunctionSpace(mesh, "CG", 2)
 x = SpatialCoordinate(mesh)
 
 a_hill, dt, T = 5.0, 0.005, 0.1
@@ -94,7 +95,7 @@ u, v = TrialFunction(V), TestFunction(V)
 F = u * v * dx + dt * inner(grad(u), grad(v)) * dx - u_n * v * dx
 uh = Function(V, name="u")
 solver = LinearVariationalSolver(
-    LinearVariationalProblem(lhs(F), rhs(F), uh, DirichletBC(V, 0.0, "on_boundary"), constant_jacobian=True)
+    LinearVariationalProblem(lhs(F), rhs(F), uh, bcs=[DirichletBC(V, 0.0, "on_boundary")], constant_jacobian=True)
 )
 
 # %% [markdown]
@@ -103,6 +104,7 @@ solver = LinearVariationalSolver(
 # %%
 import numpy as np
 import matplotlib.pyplot as plt
+from ngsufl.pyplot import tripcolor
 
 nsteps = round(T / dt)
 snap_steps = {0: u_n.copy(), nsteps // 4: None, nsteps // 2: None, nsteps: None}
@@ -118,9 +120,10 @@ print("steps:", nsteps)
 # %%
 fig, axes = plt.subplots(1, 4, figsize=(13, 3.2), sharey=True)
 for ax, (n, s) in zip(axes, snap_steps.items()):
-    plot(s, ax=ax, colorbar=False, vmin=0, vmax=1)
+    colors = tripcolor(s, axes=ax, vmin=0, vmax=1)
     ax.set_title(f"t = {n * dt:.3f}")
     ax.set_aspect("equal")
+fig.colorbar(colors, ax=axes);
 
 # %% [markdown]
 # ## Check against the exact solution
@@ -140,7 +143,7 @@ def final_error(dt):
     F = u * v * dx + dt * inner(grad(u), grad(v)) * dx - u_n * v * dx
     uh = Function(V)
     bc = DirichletBC(V, 0.0, "on_boundary")
-    solver = LinearVariationalSolver(LinearVariationalProblem(lhs(F), rhs(F), uh, bc, constant_jacobian=True))
+    solver = LinearVariationalSolver(LinearVariationalProblem(lhs(F), rhs(F), uh, bcs=[bc], constant_jacobian=True))
     for n in range(round(T / dt)):
         solver.solve()
         u_n.assign(uh)

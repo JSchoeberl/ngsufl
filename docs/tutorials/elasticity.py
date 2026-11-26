@@ -18,16 +18,17 @@
 # %% [markdown]
 # ## Mesh, space and material
 #
-# `BoxMesh` creates a tetrahedral mesh; its faces are named `back` ($x=0$), `front`
-# ($x=L$), `left` ($y=0$), `right` ($y=W$), `bottom` ($z=0$) and `top` ($z=W$).
+# `BoxMesh` creates a tetrahedral mesh.  As in Firedrake its faces are numbered 1 ($x=0$),
+# 2 ($x=L$), 3 ($y=0$), 4 ($y=W$), 5 ($z=0$) and 6 ($z=W$).  The front end follows the
+# Firedrake API, so apart from the clearly marked extras the code reads as Firedrake code.
 
 # %%
 from ngsufl import *
 
 L, W = 1.0, 0.2
 mesh = BoxMesh(10, 3, 3, L, W, W)
-V = VectorFunctionSpace(mesh, "Lagrange", 2)
-print(mesh.boundaries, V.dim(), "dofs")
+V = VectorFunctionSpace(mesh, "CG", 2)
+print(V.dim(), "dofs")
 
 delta = W / L
 gamma = 0.4 * delta**2
@@ -57,14 +58,14 @@ L_form = dot(f, v) * dx
 # %% [markdown]
 # ## Clamping and solution
 #
-# The Dirichlet condition is imposed on the boundary named `back`.  Direct solvers are the
+# The Dirichlet condition is imposed on boundary 1 ($x=0$).  Direct solvers are the
 # default; for large 3D problems one would select `cg` with a preconditioner through
 # `solver_parameters`.
 
 # %%
-bc = DirichletBC(V, (0.0, 0.0, 0.0), "back")
+bc = DirichletBC(V, Constant((0.0, 0.0, 0.0)), 1)
 uh = Function(V, name="u")
-solve(a == L_form, uh, bc)
+solve(a == L_form, uh, bcs=bc)
 
 tip = uh.at(L, W / 2, W / 2)
 print("tip displacement:", tip)
@@ -72,7 +73,8 @@ print("tip displacement:", tip)
 # %% [markdown]
 # ## Deformed shape
 #
-# `plot` draws the boundary surface of a 3D mesh coloured by the given function.  With
+# `plot` is an ngsufl convenience (Firedrake would write a VTK file).  For a 3D mesh it draws
+# the boundary surface coloured by the given function.  With
 # `deformation=` the surface is moved by a vector field, here the
 # displacement itself (`deformation=10 * uh` would exaggerate it).
 
@@ -99,7 +101,7 @@ von_Mises = sqrt(1.5 * inner(s, s))
 Q = FunctionSpace(mesh, "DG", 1)
 stress = project(von_Mises, Q)
 stress.name = "von Mises"
-print("max von Mises stress:", stress.array.max())
+print("max von Mises stress:", stress.dat.data.max())
 
 # %%
 fig = plt.figure(figsize=(9, 4))
@@ -109,7 +111,7 @@ ax.set_aspect("equal")
 ax.set_title("von Mises stress");
 
 # %% [markdown]
-# ## Comparison with plain NGSolve
+# ## Comparison with plain NGSolve (ngsufl extra)
 #
 # The same problem written directly with NGSolve objects should give the same
 # discrete solution up to round-off, since both use the same space and the same

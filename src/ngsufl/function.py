@@ -5,7 +5,10 @@ import numbers
 import ngsolve as ngs
 import numpy as np
 import ufl
+from ufl.constantvalue import ConstantValue
+from ufl.core.ufl_type import ufl_type
 from ufl.finiteelement import AbstractFiniteElement
+from ufl.utils.counted import Counted
 
 from .element import FiniteElement, MixedElement, make_fespace
 from .mesh import Mesh, default_mesh
@@ -48,6 +51,13 @@ class FunctionSpace(ufl.FunctionSpace):
 
     def num_sub_spaces(self):
         return len(self.ufl_element().sub_elements)
+
+    @property
+    def subspaces(self):
+        return tuple(self.sub(i) for i in range(self.num_sub_spaces())) or (self,)
+
+    def __len__(self):
+        return len(self.ufl_element().sub_elements) if isinstance(self.ufl_element(), MixedElement) else 1
 
     def sub(self, i):
         return SubSpace(self, (i,))
@@ -210,9 +220,9 @@ _Sym.__invert__ = lambda self: _Sym(ufl.Not(_cond(self)))
 
 
 def set_values(gf, cf, element, definedon=None):
-    """Canonical (commuting) interpolation for H(curl) and H(div), local projection otherwise."""
+    """Canonical interpolation for H1, H(curl) and H(div), local projection otherwise."""
     kw = {} if definedon is None else {"definedon": definedon}
-    if getattr(element, "family", None) in ("N1curl", "N2curl", "RT", "BDM"):
+    if getattr(element, "family", None) in ("Lagrange", "N1curl", "N2curl", "RT", "BDM"):
         try:
             gf.Interpolate(cf, **kw)
             return
@@ -251,15 +261,159 @@ def to_cf(expr, mesh=None):
     return as_cf(expr, mesh)
 
 
+class _Name(str):
+    """A str that may also be called, ``u.name`` and ``u.name()``."""
+
+    def __call__(self):
+        return str(self)
+
+
+def _columns(element):
+    """Number of components that have their own block of dofs."""
+    if isinstance(element, FiniteElement) and element.family in ("Lagrange", "DG", "CR", "Real"):
+        return int(np.prod(element.shape, dtype=int)), element.shape
+    return 1, ()
+
+
+class Dat:
+    """``u.dat.data``: the coefficient array, one row per dof for vector spaces.
+
+    The coefficients belong to NGSolve's hierarchical basis.  They are point values
+    only for lowest order spaces.
+    """
+
+    def __init__(self, vec, element=None, parts=None):
+        self._vec, self._element, self._parts = vec, element, parts
+
+    @property
+    def data(self):
+        if self._parts is not None:
+            return tuple(p.dat.data for p in self._parts)
+        arr = self._vec.FV().NumPy()
+        n, shape = _columns(self._element)
+        if n == 1:
+            return arr
+        arr = arr.reshape(n, -1).T
+        return arr if len(shape) == 1 else arr.reshape((-1,) + shape)
+
+    data_ro = data_with_halos = data_ro_with_halos = data
+
+
+class Vector:
+    """Coefficient vector of a Function or an assembled 1-form (``.vec`` is the NGSolve vector)."""
+
+    def __init__(self, vec, space=None):
+        self.vec, self._space, self.bcs = vec, space, []
+
+    def __getattr__(self, name):
+        if name == "vec":
+            raise AttributeError(name)
+        return getattr(self.vec, name)
+
+    def function_space(self):
+        return self._space
+
+    @property
+    def dat(self):
+        return Dat(self.vec, self._space.ufl_element() if self._space is not None else None)
+
+    def _np(self):
+        return self.vec.FV().NumPy()
+
+    def get_local(self):
+        return self._np().copy()
+
+    array = get_local
+
+    def set_local(self, values):
+        self._np()[:] = values
+
+    def __array__(self, dtype=None, copy=None):
+        return np.array(self._np(), dtype=dtype)
+
+    def __len__(self):
+        return len(self._np())
+
+    size = local_size = __len__
+
+    def __getitem__(self, i):
+        return self._np()[i]
+
+    def __setitem__(self, i, value):
+        self._np()[i] = np.asarray(value)
+
+    def norm(self, norm_type="l2"):
+        order = {"l2": 2, "l1": 1, "linf": np.inf}[norm_type.lower()]
+        return float(np.linalg.norm(self._np(), order))
+
+    def inner(self, other):
+        return float(self._np() @ np.asarray(other))
+
+    def max(self):
+        return float(self._np().max())
+
+    def min(self):
+        return float(self._np().min())
+
+    def sum(self):
+        return float(self._np().sum())
+
+    def zero(self):
+        self._np()[:] = 0.0
+
+    def axpy(self, a, x):
+        self._np()[:] += a * np.asarray(x)
+
+    def copy(self):
+        v = Vector(self.vec.CreateVector(), self._space)
+        v._np()[:] = self._np()
+        return v
+
+    def apply(self, mode=None):
+        pass
+
+    def _new(self, values):
+        v = self.copy()
+        v._np()[:] = values
+        return v
+
+    def __add__(self, other):
+        return self._new(self._np() + np.asarray(other))
+
+    def __sub__(self, other):
+        return self._new(self._np() - np.asarray(other))
+
+    def __mul__(self, a):
+        return self._new(self._np() * a)
+
+    __rmul__ = __mul__
+
+    def __neg__(self):
+        return self._new(-self._np())
+
+
 class Function(ufl.Coefficient):
     """A finite element function, backed by an NGSolve GridFunction (``u.gf``)."""
 
-    def __init__(self, V, name=None, gf=None):
+    def __init__(self, V, val=None, name=None, gf=None):
         super().__init__(V)
-        self.name = name or "u"
-        self.gf = gf if gf is not None else ngs.GridFunction(V.fes, name=self.name)
+        if isinstance(val, str):
+            val, name = None, val
+        self.name = _Name(name or "u")
+        self.gf = gf if gf is not None else ngs.GridFunction(V.fes, name=str(self.name))
         self._field = None
         self._subs = None
+        if isinstance(val, Function):
+            self.gf.vec.data = val.gf.vec
+        elif val is not None:
+            self.gf.vec.FV().NumPy()[:] = np.asarray(val).ravel()
+
+    def rename(self, name=None, label=None):
+        if name is not None:
+            self.name = _Name(name)
+
+    def geometric_dimension(self):
+        return self.function_space().mesh.dim
 
     @property
     def function_space(self):
@@ -287,7 +441,27 @@ class Function(ufl.Coefficient):
         return self.gf.vec
 
     def vector(self):
-        return self.gf.vec
+        return Vector(self.gf.vec, self.function_space())
+
+    @property
+    def dat(self):
+        mixed = isinstance(self.ufl_element(), MixedElement)
+        return Dat(self.gf.vec, self.ufl_element(), self.subfunctions if mixed else None)
+
+    def zero(self):
+        self.gf.vec[:] = 0.0
+        return self
+
+    def project(self, expr, **kwargs):
+        from .solving import project
+        self.gf.vec.data = project(expr, self.function_space(), **kwargs).gf.vec
+        return self
+
+    def compute_vertex_values(self, mesh=None):
+        """Values at the mesh vertices, component after component."""
+        m = self.function_space().mesh.ngs
+        pts = np.array([list(v.point) for v in m.vertices])
+        return np.asarray(self.cf(m(*pts.T))).T.ravel()
 
     @property
     def array(self):
@@ -308,22 +482,36 @@ class Function(ufl.Coefficient):
         return self.subfunctions
 
     def interpolate(self, expr):
-        """Set the function from an expression.
+        """Set the function from an expression, which may contain the function itself.
 
-        H(curl) and H(div) spaces use NGSolve's canonical interpolation, which commutes
-        with curl and div; the others a local L2 projection followed by averaging.
+        H1, H(curl) and H(div) spaces use NGSolve's canonical interpolation (vertex values
+        and moments, commuting with grad, curl and div); the others a local L2 projection.
         """
         V = self.function_space()
         cf = as_cf(expr, V.mesh, V.value_shape)
+        tmp = ngs.GridFunction(V.fes)
         if not isinstance(V.ufl_element(), MixedElement):
-            set_values(self.gf, cf, V.ufl_element())
-            return self
-        fld = self._ngs_field()
-        for part, lo, hi in zip(fld.parts, fld.offsets, fld.offsets[1:]):
-            shape = part.element.shape
-            c = cf[lo] if not shape else ngs.CF(tuple(cf[i] for i in range(lo, hi)))
-            set_values(part.cf, c.Reshape(shape) if len(shape) > 1 else c, part.element)
+            set_values(tmp, cf, V.ufl_element())
+        else:
+            fld = self._ngs_field()
+            for comp, part, lo, hi in zip(tmp.components, fld.parts, fld.offsets, fld.offsets[1:]):
+                shape = part.element.shape
+                c = cf[lo] if not shape else ngs.CF(tuple(cf[i] for i in range(lo, hi)))
+                set_values(comp, c.Reshape(shape) if len(shape) > 1 else c, part.element)
+        self.gf.vec.data = tmp.vec
         return self
+
+    def __iadd__(self, other):
+        return self.assign(self + other)
+
+    def __isub__(self, other):
+        return self.assign(self - other)
+
+    def __imul__(self, other):
+        return self.assign(self * other)
+
+    def __itruediv__(self, other):
+        return self.assign(self / other)
 
     def assign(self, other):
         if isinstance(other, Function):
@@ -339,7 +527,7 @@ class Function(ufl.Coefficient):
         f.gf.vec.data = self.gf.vec
         return f
 
-    def at(self, *point):
+    def at(self, *point, **kw):
         """Value at a point ``u.at(x, y)``, or at many: ``u.at(points)`` with shape (n, dim)."""
         m = self.function_space().mesh.ngs
         if len(point) == 1 and not isinstance(point[0], numbers.Number):
@@ -351,7 +539,7 @@ class Function(ufl.Coefficient):
         return self.cf(m(*point))
 
     def __call__(self, *args, **kwargs):
-        if len(args) == 1 and args[0] in ("+", "-"):
+        if len(args) == 1 and isinstance(args[0], str):
             return super().__call__(*args, **kwargs)
         return self.at(*args)
 
@@ -381,17 +569,11 @@ def material_function(mesh, values, default=0.0):
     return from_cf(mesh.ngs.MaterialCF(values, default=default), mesh, degree=0)
 
 
-class Constant(ufl.Constant):
-    """``Constant(value)`` or ``Constant(mesh, value)``; change it with ``assign``."""
+class _Parameters:
+    """Value of a constant, kept in NGSolve Parameters."""
 
-    def __init__(self, *args, domain=None):
-        if len(args) == 2:
-            domain, value = args
-        else:
-            value, = args
-        mesh = domain if domain is not None else default_mesh()
+    def _set_value(self, value):
         arr = np.asarray(value, dtype=float)
-        super().__init__(mesh.ufl_domain(), arr.shape)
         self._params = [ngs.Parameter(float(v)) for v in arr.flat]
         if arr.ndim == 0:
             self._cf = self._params[0]
@@ -416,8 +598,63 @@ class Constant(ufl.Constant):
         vals = np.array([p.Get() for p in self._params]).reshape(self.ufl_shape)
         return float(vals) if not self.ufl_shape else vals
 
+    def values(self):
+        return np.array([p.Get() for p in self._params])
+
     def __float__(self):
         return float(self.value)
+
+
+class DomainConstant(_Parameters, ufl.Constant):
+    """A constant tied to a mesh, ``Constant(mesh, value)``; it gives ``c * dx`` its domain."""
+
+    def __init__(self, *args, domain=None):
+        if len(args) == 2:
+            domain, value = args
+        else:
+            value, = args
+        ufl.Constant.__init__(self, domain.ufl_domain(), np.shape(value))
+        self._set_value(value)
+
+
+@ufl_type()
+class GlobalConstant(ConstantValue, _Parameters, Counted):
+    """``Constant(value)``, independent of any mesh; change it with ``assign``."""
+
+    _ufl_noslots_ = True
+    __float__ = _Parameters.__float__
+
+    def __new__(cls, *args, domain=None):
+        if len(args) == 2 or domain is not None:
+            return DomainConstant(*args, domain=domain)
+        return ConstantValue.__new__(cls)
+
+    def __init__(self, value, domain=None):
+        ConstantValue.__init__(self)
+        Counted.__init__(self, None, GlobalConstant)
+        self._shape = np.shape(value)
+        self._set_value(value)
+
+    @property
+    def ufl_shape(self):
+        return self._shape
+
+    def __str__(self):
+        return f"c_{self._count}"
+
+    def __repr__(self):
+        return f"Constant({self._shape!r}, {self._count!r})"
+
+    def __eq__(self, other):
+        return self is other
+
+    def __hash__(self):
+        return hash(("Constant", self._count))
+
+
+Constant = GlobalConstant
+for _classes in (ufl.classes.all_ufl_classes, ufl.classes.ufl_classes, ufl.classes.terminal_classes):
+    _classes.add(GlobalConstant)
 
 
 __all__ = ["FunctionSpace", "MixedFunctionSpace", "VectorFunctionSpace", "TensorFunctionSpace",

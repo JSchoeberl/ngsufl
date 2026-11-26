@@ -9,9 +9,10 @@
 # 2. a problem with two materials of different conductivity,
 # 3. a Dirichlet condition on a single component of a vector valued unknown.
 #
-# In all cases the parts of the domain are selected by **name**.  The structured meshes carry
-# names for their sides, and for meshes built from geometry the names are assigned when
-# the geometry is described.
+# On the built-in meshes the sides are selected by their Firedrake **number**.  For meshes
+# built from geometry, ngsufl also accepts the **names** assigned when the geometry is
+# described, for boundaries as well as for subdomains.  Names are an ngsufl extra; the
+# numbers of such a mesh are the 1-based NGSolve boundary and material indices.
 
 # %% [markdown]
 # ## Part 1: Dirichlet, Neumann and Robin
@@ -21,13 +22,14 @@
 #
 # | side | condition |
 # |---|---|
-# | `left`, `bottom` | Dirichlet: $u = u_e$ |
-# | `top` | Neumann: $\partial_n u = g$ with $g = \nabla u_e\cdot n$ |
-# | `right` | Robin: $\partial_n u = r\,(s - u)$ with $s = u_e + \partial_n u_e / r$ |
+# | 1 ($x = 0$), 3 ($y = 0$) | Dirichlet: $u = u_e$ |
+# | 4 ($y = 1$) | Neumann: $\partial_n u = g$ with $g = \nabla u_e\cdot n$ |
+# | 2 ($x = 1$) | Robin: $\partial_n u = r\,(s - u)$ with $s = u_e + \partial_n u_e / r$ |
 #
-# Dirichlet conditions are imposed strongly by the `DirichletBC` object.  Neumann and Robin
+# The numbering is the one of Firedrake's unit square: 1: $x = 0$, 2: $x = 1$, 3: $y = 0$,
+# 4: $y = 1$.  Dirichlet conditions are imposed strongly by the `DirichletBC` object.  Neumann and Robin
 # conditions are natural: after integration by parts they appear as boundary integrals
-# with the measure `ds` restricted to the named sides,
+# with the measure `ds` restricted to the numbered sides,
 #
 # $$ \int_\Omega \nabla u\cdot\nabla v\,dx + \int_{\Gamma_R} r\,u\,v\,ds
 #    = \int_\Omega f v\,dx + \int_{\Gamma_N} g\,v\,ds + \int_{\Gamma_R} r\,s\,v\,ds . $$
@@ -36,9 +38,9 @@
 from ngsufl import *
 
 mesh = UnitSquareMesh(8, 8)
-print(mesh.boundaries)
+print("names (ngsufl extra):", mesh.boundaries)
 
-V = FunctionSpace(mesh, "Lagrange", 2)
+V = FunctionSpace(mesh, "CG", 2)
 u, v = TrialFunction(V), TestFunction(V)
 x = SpatialCoordinate(mesh)
 n = FacetNormal(mesh)
@@ -49,11 +51,11 @@ g = dot(grad(u_e), n)
 r = 5.0
 s = u_e + g / r
 
-a = inner(grad(u), grad(v)) * dx + r * u * v * ds("right")
-L = f * v * dx + g * v * ds("top") + r * s * v * ds("right")
+a = inner(grad(u), grad(v)) * dx + r * u * v * ds(2)
+L = f * v * dx + g * v * ds(4) + r * s * v * ds(2)
 
 uh = Function(V, name="u")
-solve(a == L, uh, DirichletBC(V, u_e, "left|bottom"))
+solve(a == L, uh, bcs=[DirichletBC(V, u_e, (1, 3))])
 print("L2 error:", errornorm(u_e, uh))
 
 # %% [markdown]
@@ -72,6 +74,7 @@ print("L2 error:", errornorm(u_e, uh))
 # %%
 from netgen.occ import Circle, Glue, OCCGeometry, WorkPlane, X, Y
 import matplotlib.pyplot as plt
+from ngsufl.pyplot import tripcolor
 
 rect = WorkPlane().Rectangle(2, 1).Face()
 disc = Circle((1, 0.5), 0.3).Face()
@@ -88,13 +91,14 @@ mesh2 = Mesh(geo.GenerateMesh(maxh=0.08)).curve(3)
 print("materials:", mesh2.materials, " boundaries:", mesh2.boundary_names)
 
 # %% [markdown]
-# Integrals over a material use the same name: `dx("inner")` and `dx("outer")`.  The
+# Integrals over a material use the same name: `dx("inner")` and `dx("outer")`, and
+# boundaries are selected by name as well (`"left"`, `"right"`).  The
 # conductivity is $k = 1$ outside and $k = 10$ in the inclusion.  We prescribe $u = 0$ on
 # the left and $u = 1$ on the right side, and keep top and bottom insulated (the natural
 # condition), so a heat flux flows from right to left and is attracted by the inclusion.
 
 # %%
-V2 = FunctionSpace(mesh2, "Lagrange", 3)
+V2 = FunctionSpace(mesh2, "CG", 3)
 u, v = TrialFunction(V2), TestFunction(V2)
 k_in, k_out = 10.0, 1.0
 
@@ -103,12 +107,12 @@ L = Constant(0.0) * v * dx
 
 bcs = [DirichletBC(V2, 0.0, "left"), DirichletBC(V2, 1.0, "right")]
 uh2 = Function(V2, name="u")
-solve(a == L, uh2, bcs)
+solve(a == L, uh2, bcs=bcs)
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 3.2))
-plot(uh2, ax=ax1)
+fig.colorbar(tripcolor(uh2, axes=ax1), ax=ax1)
 ax1.set_title("$u$")
-plot(sqrt(inner(grad(uh2), grad(uh2))), ax=ax2)
+fig.colorbar(tripcolor(sqrt(inner(grad(uh2), grad(uh2))), axes=ax2), ax=ax2)
 ax2.set_title("$|\\nabla u|$: low inside the inclusion")
 for ax in (ax1, ax2):
     ax.set_aspect("equal")
@@ -119,7 +123,8 @@ for ax in (ax1, ax2):
 # In steady state, the flux through the left side equals the flux through the right side.  We
 # compute both from the solution as boundary integrals of $-k\,\partial_n u$.  The
 # conductivity there is the outer one.  Then we compare the solution with a plain NGSolve
-# computation, where the material coefficient is built from the mesh materials.
+# computation (an ngsufl extra: `mesh.ngs` is the NGSolve mesh), where the material
+# coefficient is built from the mesh materials.
 
 # %%
 n2 = FacetNormal(mesh2)
@@ -151,15 +156,15 @@ print("difference to native NGSolve (L2):", ngs.sqrt(ngs.Integrate((gf - to_cf(u
 # For vector valued unknowns a boundary condition may fix only some components.  `V.sub(i)`
 # gives the $i$-th component as a subspace that can be used in `DirichletBC`.  As an
 # example take a plane stress elastic block $(0,2)\times(0,1)$ under uniaxial tension
-# $\sigma$ on the right side.  We only fix the normal displacement on the symmetry sides,
-# $u_x = 0$ on `left` and $u_y = 0$ on `bottom`, and leave everything else free.  The
+# $\sigma$ on the right side (2).  We only fix the normal displacement on the symmetry sides,
+# $u_x = 0$ on side 1 ($x = 0$) and $u_y = 0$ on side 3 ($y = 0$), and leave everything else free.  The
 # exact solution is homogeneous,
 #
 # $$ u_x = \frac{\sigma}{E}\,x, \qquad u_y = -\frac{\nu\sigma}{E}\,y . $$
 
 # %%
 mesh3 = RectangleMesh(8, 4, 2.0, 1.0)
-W = VectorFunctionSpace(mesh3, "Lagrange", 2)
+W = VectorFunctionSpace(mesh3, "CG", 2)
 u, v = TrialFunction(W), TestFunction(W)
 
 E, nu, sigma0 = 10.0, 0.3, 1.0
@@ -176,11 +181,11 @@ def sigma(w):
 
 
 a = inner(sigma(u), eps(v)) * dx
-L = dot(Constant((sigma0, 0.0)), v) * ds("right")
+L = dot(Constant((sigma0, 0.0)), v) * ds(2)
 
-bcs = [DirichletBC(W.sub(0), 0.0, "left"), DirichletBC(W.sub(1), 0.0, "bottom")]
+bcs = [DirichletBC(W.sub(0), 0.0, 1), DirichletBC(W.sub(1), 0.0, 3)]
 wh = Function(W, name="u")
-solve(a == L, wh, bcs)
+solve(a == L, wh, bcs=bcs)
 
 x3 = SpatialCoordinate(mesh3)
 w_exact = as_vector((sigma0 / E * x3[0], -nu * sigma0 / E * x3[1]))

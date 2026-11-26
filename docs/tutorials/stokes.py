@@ -15,7 +15,8 @@
 # **Pressure level.**  With Dirichlet conditions on the whole boundary, $p$ appears only
 # through $\nabla p$, so it is determined up to an additive constant and the matrix is singular.
 # We fix the constant by requiring $\int_\Omega p\,dx = 0$ through a Lagrange multiplier $c$,
-# a single scalar unknown living in the `Real` space.
+# a single scalar unknown living in the `"R"` (real) space.  The front end follows the Firedrake API;
+# boundaries of `UnitSquareMesh` are numbered as in Firedrake: 1 ($x=0$), 2 ($x=1$), 3 ($y=0$), 4 ($y=1$).
 
 # %% [markdown]
 # ## Mixed formulation
@@ -30,9 +31,9 @@ from ngsufl import *
 
 
 def stokes_problem(mesh, u_exact, p_exact):
-    V = VectorFunctionSpace(mesh, "Lagrange", 2)
-    Q = FunctionSpace(mesh, "Lagrange", 1)
-    R = FunctionSpace(mesh, "Real", 0)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
     W = V * Q * R
 
     (u, p, c), (v, q, r) = TrialFunctions(W), TestFunctions(W)
@@ -43,7 +44,7 @@ def stokes_problem(mesh, u_exact, p_exact):
 
     bc = DirichletBC(W.sub(0), u_exact, "on_boundary")
     w = Function(W)
-    solve(a == L, w, bc)
+    solve(a == L, w, bcs=bc)
     uh, ph, _ = w.subfunctions
     return uh, ph
 
@@ -62,10 +63,10 @@ import numpy as np
 hs, eu, eu1, ep = [], [], [], []
 for n in (4, 8, 16, 32):
     mesh = UnitSquareMesh(n, n)
-    x = SpatialCoordinate(mesh)
-    psi = sin(pi * x[0]) * sin(pi * x[1])
+    x, y = SpatialCoordinate(mesh)
+    psi = sin(pi * x) * sin(pi * y)
     u_ex = as_vector((psi.dx(1), -psi.dx(0)))
-    p_ex = cos(pi * x[0]) * sin(pi * x[1])
+    p_ex = cos(pi * x) * sin(pi * y)
 
     uh, ph = stokes_problem(mesh, u_ex, p_ex)
     hs.append(1.0 / n)
@@ -93,23 +94,23 @@ print("rates p L2:", np.round(rate(ep), 2))
 
 # %%
 mesh = UnitSquareMesh(32, 32)
-V = VectorFunctionSpace(mesh, "Lagrange", 2)
-Q = FunctionSpace(mesh, "Lagrange", 1)
-R = FunctionSpace(mesh, "Real", 0)
+V = VectorFunctionSpace(mesh, "CG", 2)
+Q = FunctionSpace(mesh, "CG", 1)
+R = FunctionSpace(mesh, "R", 0)
 W = V * Q * R
 
 (u, p, c), (v, q, r) = TrialFunctions(W), TestFunctions(W)
 a = (inner(grad(u), grad(v)) - p * div(v) - q * div(u) + c * q + r * p) * dx
 L = inner(Constant((0.0, 0.0)), v) * dx
 
-bcs = [DirichletBC(W.sub(0), (1.0, 0.0), "top"),
-       DirichletBC(W.sub(0), (0.0, 0.0), "left|right|bottom")]
+bcs = [DirichletBC(W.sub(0), Constant((1.0, 0.0)), 4),
+       DirichletBC(W.sub(0), Constant((0.0, 0.0)), (1, 2, 3))]
 w = Function(W)
-solve(a == L, w, bcs)
+solve(a == L, w, bcs=bcs)
 uh, ph, ch = w.subfunctions
 
 print("mean pressure:", assemble(ph * dx))
-print("multiplier value:", ch.array[0])
+print("multiplier value:", ch.dat.data[0])
 print("L2 norm of div u:", norm(div(uh)))
 
 # %% [markdown]
@@ -120,11 +121,16 @@ print("L2 norm of div u:", norm(div(uh)))
 
 # %%
 import matplotlib.pyplot as plt
+from ngsufl.pyplot import tripcolor
 
 fig, axs = plt.subplots(1, 2, figsize=(10, 4))
-plot(sqrt(dot(uh, uh)), ax=axs[0])
+colors = tripcolor(uh, axes=axs[0])
+fig.colorbar(colors, ax=axs[0])
+axs[0].set_aspect("equal")
 axs[0].set_title("speed")
-plot(ph, ax=axs[1], vmin=-10, vmax=10)
+colors = tripcolor(ph, axes=axs[1], vmin=-10, vmax=10)
+fig.colorbar(colors, ax=axs[1])
+axs[1].set_aspect("equal")
 axs[1].set_title("pressure (colour range clipped to $\\pm 10$)");
 
 # %% [markdown]

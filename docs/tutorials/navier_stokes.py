@@ -20,6 +20,7 @@
 # change.  We tell the solver so with `constant_jacobian=True`; it then factorises them once.
 # The scheme is first order in time, which is sufficient for the two examples here:
 # (a) a channel flow whose steady state is known exactly, (b) the flow around a cylinder.
+# The front end follows the Firedrake API, and the code below is written in that style.
 
 # %% [markdown]
 # ## The scheme as a function
@@ -34,8 +35,8 @@ import numpy as np
 
 
 def ipcs(mesh, nu, dt, nsteps, inlet_velocity, inlet, outlet, walls, callback=None):
-    V = VectorFunctionSpace(mesh, "Lagrange", 2)
-    Q = FunctionSpace(mesh, "Lagrange", 1)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
     u, v = TrialFunction(V), TestFunction(V)
     p, q = TrialFunction(Q), TestFunction(Q)
 
@@ -58,11 +59,11 @@ def ipcs(mesh, nu, dt, nsteps, inlet_velocity, inlet, outlet, walls, callback=No
     a3 = dot(u, v) * dx
     L3 = dot(u_s, v) * dx - dt * dot(grad(p_new - p_n), v) * dx
 
-    bcu = [DirichletBC(V, inlet_velocity, inlet), DirichletBC(V, (0.0, 0.0), walls)]
-    bcp = [DirichletBC(Q, 0.0, outlet)]
+    bcu = [DirichletBC(V, inlet_velocity, inlet), DirichletBC(V, Constant((0.0, 0.0)), walls)]
+    bcp = [DirichletBC(Q, Constant(0.0), outlet)]
 
-    step1 = LinearVariationalSolver(LinearVariationalProblem(a1, L1, u_s, bcu))
-    step2 = LinearVariationalSolver(LinearVariationalProblem(a2, L2, p_new, bcp, constant_jacobian=True))
+    step1 = LinearVariationalSolver(LinearVariationalProblem(a1, L1, u_s, bcs=bcu))
+    step2 = LinearVariationalSolver(LinearVariationalProblem(a2, L2, p_new, bcs=bcp, constant_jacobian=True))
     step3 = LinearVariationalSolver(LinearVariationalProblem(a3, L3, u_new, constant_jacobian=True))
 
     for k in range(nsteps):
@@ -79,20 +80,21 @@ def ipcs(mesh, nu, dt, nsteps, inlet_velocity, inlet, outlet, walls, callback=No
 # %% [markdown]
 # ## (a) Channel flow
 #
-# In the channel $(0,2)\times(0,1)$ the Poiseuille profile $u = (4y(1-y), 0)$ with
+# In the channel $(0,2)\times(0,1)$ the boundaries are numbered as in Firedrake: 1 ($x=0$, inlet),
+# 2 ($x=2$, outlet), 3 ($y=0$) and 4 ($y=1$), the walls.  The Poiseuille profile $u = (4y(1-y), 0)$ with
 # $p = 8\nu(2 - x)$ is an exact steady solution.  We prescribe it at the inlet, no slip at the walls and $p=0$
 # at the outlet, start from rest and march until the flow is steady.  Since the exact solution lies in
 # the finite element space, the discrete steady state should reproduce it closely.
 
 # %%
 mesh = RectangleMesh(16, 8, 2.0, 1.0)
-x = SpatialCoordinate(mesh)
+x, y = SpatialCoordinate(mesh)
 nu = 0.1
-u_ex = as_vector((4 * x[1] * (1 - x[1]), 0.0))
-p_ex = 8 * nu * (2 - x[0])
+u_ex = as_vector((4 * y * (1 - y), 0.0))
+p_ex = 8 * nu * (2 - x)
 
 uh, ph = ipcs(mesh, nu, dt=0.02, nsteps=100, inlet_velocity=u_ex,
-              inlet="left", outlet="right", walls="top|bottom")
+              inlet=1, outlet=2, walls=(3, 4))
 
 print("t = 2.0")
 print("velocity L2 error:", errornorm(u_ex, uh))
@@ -117,7 +119,8 @@ ax.set_xlabel("$y$"); ax.set_ylabel("$u_x$"); ax.legend();
 #
 # The geometry is built with `netgen.occ` by subtracting the disk from the rectangle.  The
 # edges receive names, which become boundary names of the mesh and are used directly in the
-# boundary conditions and measures.  After meshing, `curve(3)` makes the mesh elements
+# boundary conditions and measures.  Names are an ngsufl extra; Firedrake would use the
+# numbers of the boundary markers (here the 1-based NGSolve boundary index).  After meshing, `curve(3)` makes the mesh elements
 # curved, so that the circle is represented accurately even on this coarse mesh.
 
 # %%
@@ -138,7 +141,11 @@ mesh = Mesh(OCCGeometry(fluid, dim=2).GenerateMesh(maxh=0.04)).curve(3)
 print(mesh.boundary_names, "-", mesh.ngs.ne, "elements")
 
 # %%
-plot(mesh, lw=0.3).figure.set_size_inches(10, 2);
+from ngsufl.pyplot import tripcolor, triplot
+
+fig, axes = plt.subplots(figsize=(10, 2))
+triplot(mesh, axes=axes, interior_kw={"linewidth": 0.3})
+axes.set_aspect("equal");
 
 # %% [markdown]
 # We march to $t=8$ with $\Delta t = 0.02$.  The force on the cylinder is evaluated from the
@@ -150,9 +157,9 @@ plot(mesh, lw=0.3).figure.set_size_inches(10, 2);
 # %%
 import time
 
-x = SpatialCoordinate(mesh)
+x, y = SpatialCoordinate(mesh)
 Um = 0.3
-inflow = as_vector((4 * Um * x[1] * (H - x[1]) / H**2, 0.0))
+inflow = as_vector((4 * Um * y * (H - y) / H**2, 0.0))
 nu = 1e-3
 
 t0 = time.time()
@@ -172,8 +179,9 @@ print(f"pressure difference = {dp:.4f}   (reference 0.1175)")
 
 # %%
 fig, axs = plt.subplots(2, 1, figsize=(10, 5))
-plot(sqrt(dot(uh, uh)), ax=axs[0])
-axs[0].set_title("speed")
-plot(ph, ax=axs[1])
-axs[1].set_title("pressure")
+for axes, field, title in zip(axs, (uh, ph), ("speed", "pressure")):
+    colors = tripcolor(field, axes=axes)
+    fig.colorbar(colors, ax=axes)
+    axes.set_aspect("equal")
+    axes.set_title(title)
 fig.tight_layout();

@@ -286,8 +286,8 @@ def nds(m, name='.*'):
     return ngs.dx(element_boundary=True, definedon=m.ngs.Boundaries(name))
 
 
-@pytest.mark.parametrize("sel,name", [("bottom", "bottom"), (1, "bottom"), (3, "top"), ("left|right", "left|right"),
-                                       ((1, 3), "bottom|top"), ((2, 4), "right|left"), ("top|bottom", "top|bottom")])
+@pytest.mark.parametrize("sel,name", [("bottom", "bottom"), (3, "bottom"), (4, "top"), ("left|right", "left|right"),
+                                       ((3, 4), "bottom|top"), ((2, 1), "right|left"), ("top|bottom", "top|bottom")])
 def test_ds_selectors(sel, name):
     m = mk("tri")
     assert m.boundaries[:4] == ("bottom", "right", "top", "left")
@@ -304,7 +304,7 @@ def test_ds_all_and_mixed_ids():
     u, v = TrialFunction(V), TestFunction(V)
     close(A(u * v * ds), native_bf(V.fes, lambda U, W: U * W * ngs.ds))
     a = u * v * ds(1) + 2 * u * v * ds("right") + 3 * u * v * ds((3, 4))
-    nat = native_bf(V.fes, lambda U, W: U * W * ngs.ds("bottom") + 2 * U * W * ngs.ds("right") + 3 * U * W * ngs.ds("top|left"))
+    nat = native_bf(V.fes, lambda U, W: U * W * ngs.ds("left") + 2 * U * W * ngs.ds("right") + 3 * U * W * ngs.ds("bottom|top"))
     close(A(a), nat)
 
 

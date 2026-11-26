@@ -16,20 +16,20 @@
 # %% [markdown]
 # ## Mesh and function space
 #
-# `from ngsufl import *` brings in the complete UFL language together with a small
-# front end.  The mesh is an NGSolve mesh, and the function space is NGSolve's
-# hierarchical high order $H^1$ space.
+# `from ngsufl import *` brings in the complete UFL language together with a front end
+# that follows the Firedrake API.  The mesh is an NGSolve mesh, and the function space is
+# NGSolve's hierarchical high order $H^1$ space, requested as `"CG"` of degree 2.
 
 # %%
 from ngsufl import *
 
 mesh = UnitSquareMesh(8, 8)
-V = FunctionSpace(mesh, "Lagrange", 2)
+V = FunctionSpace(mesh, "CG", 2)
 
 # %% [markdown]
 # ## Variational problem
 #
-# This part is plain UFL, character for character what one writes for FEniCS or Firedrake.
+# This part is plain UFL, character for character what one writes in Firedrake.
 
 # %%
 u, v = TrialFunction(V), TestFunction(V)
@@ -44,15 +44,16 @@ L = f * v * dx
 # %% [markdown]
 # ## Boundary condition and solve
 #
-# Boundaries are addressed by their NGSolve names; `"on_boundary"` means all of them.
-# The structured unit square carries the names below.
+# `"on_boundary"` means all boundaries.  As in Firedrake, the sides of the unit square
+# are numbered 1: $x = 0$, 2: $x = 1$, 3: $y = 0$, 4: $y = 1$ (used in `ds(...)` and
+# `DirichletBC`).  The names `"left"`, `"right"`, `"bottom"`, `"top"` also work, which
+# is an ngsufl extra.
 
 # %%
-print(mesh.boundaries)
 bc = DirichletBC(V, u_e, "on_boundary")
 
 uh = Function(V, name="u")
-solve(a == L, uh, bc)
+solve(a == L, uh, bcs=[bc])
 
 # %% [markdown]
 # ## Check and plot
@@ -65,11 +66,17 @@ print("L2 error:", errornorm(u_e, uh))
 print("H1 error:", errornorm(u_e, uh, "H1"))
 
 # %%
-ax = plot(uh)
-plot(mesh, ax=ax, lw=0.3);
+import matplotlib.pyplot as plt
+from ngsufl.pyplot import tripcolor, triplot
+
+fig, axes = plt.subplots()
+colors = tripcolor(uh, axes=axes)
+fig.colorbar(colors)
+triplot(mesh, axes=axes, interior_kw={"linewidth": 0.3})
+axes.set_aspect("equal");
 
 # %% [markdown]
-# ## Behind the scenes
+# ## Behind the scenes (ngsufl extras)
 #
 # The UFL form was translated to NGSolve CoefficientFunctions and assembled by NGSolve.
 # The function `uh` wraps an NGSolve `GridFunction`, available as `uh.gf`, and any UFL

@@ -124,15 +124,33 @@ class FiniteElement(AbstractFiniteElement):
             return [sub] * self.shape[0]
         return []
 
+    def __mul__(self, other):
+        return MixedElement([self, other])
+
+
+def VectorElement(family, cell, degree, dim=None):
+    cell = cell if isinstance(cell, ufl.AbstractCell) else ufl.Cell(cell)
+    return FiniteElement(family, cell, degree, shape=(dim or _call(cell.topological_dimension),))
+
+
+def TensorElement(family, cell, degree, shape=None):
+    cell = cell if isinstance(cell, ufl.AbstractCell) else ufl.Cell(cell)
+    d = _call(cell.topological_dimension)
+    return FiniteElement(family, cell, degree, shape=shape or (d, d))
+
 
 class MixedElement(AbstractFiniteElement):
     """Cartesian product of elements."""
 
-    def __init__(self, elements):
-        self._subs = list(elements)
-        for e in self._subs:
-            if isinstance(e, MixedElement):
-                raise NotImplementedError("nested mixed elements")
+    def __init__(self, *elements):
+        if len(elements) == 1 and isinstance(elements[0], (list, tuple)):
+            elements = elements[0]
+        self._subs = []
+        for e in elements:
+            self._subs += e._subs if isinstance(e, MixedElement) else [e]
+
+    def __mul__(self, other):
+        return MixedElement([self, other])
 
     def __repr__(self):
         return "ngsufl.MixedElement([%s])" % ", ".join(repr(e) for e in self._subs)

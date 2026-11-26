@@ -82,8 +82,30 @@ class DirichletBC:
             self._dofs = (local, ba)
         return self._dofs[1]
 
-    def apply(self, gf):
-        """Write the boundary values into a GridFunction of the root space."""
+    def function_space(self):
+        return self.space
+
+    @property
+    def sub_domain(self):
+        return self.where
+
+    def apply(self, *targets):
+        """Write the boundary values into Functions and vectors, and attach the condition to matrices."""
+        for t in targets:
+            if isinstance(t, ngs.GridFunction):
+                self._set(t)
+            elif hasattr(t, "gf"):
+                self._set(t.gf)
+            elif hasattr(t, "mat"):
+                t.bcs.append(self)
+            else:
+                gf = ngs.GridFunction(self.space.root.fes)
+                gf.vec.data = t.vec
+                self._set(gf)
+                t.vec.data = gf.vec
+                t.bcs.append(self)
+
+    def _set(self, gf):
         self.dofs()
         local = np.array(list(self._dofs[0]), dtype=bool)
         fes = self.space.fes

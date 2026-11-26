@@ -20,7 +20,7 @@
 # $$ \int_\Omega \nabla\times u\cdot\nabla\times v + u\cdot v \,dx = \int_\Omega f\cdot v\,dx \qquad \forall v \in H_0(\mathrm{curl}) . $$
 #
 # The tangential Dirichlet condition is essential and imposed with `DirichletBC` on the
-# `N1curl` space (degree 1 is the lowest order element, as in FEniCS).  We use
+# `N1curl` space (degree 1 is the lowest order element, as in Firedrake).  The front end follows the Firedrake API.  We use
 # $u_e = (\sin\pi y,\ \sin\pi z,\ \sin\pi x)$, for which $f = \nabla\times\nabla\times u_e + u_e$ is
 # computed by UFL.
 
@@ -28,25 +28,26 @@
 from ngsufl import *
 import numpy as np
 
-def exact(x, kind):
+def exact(mesh, kind):
+    x, y, z = SpatialCoordinate(mesh)
     if kind == "inhomogeneous":
-        return as_vector((sin(pi * x[1]), sin(pi * x[2]), sin(pi * x[0])))
+        return as_vector((sin(pi * y), sin(pi * z), sin(pi * x)))
     # tangential trace vanishes on the whole boundary
-    return as_vector((sin(pi * x[1]) * sin(pi * x[2]),
-                      sin(pi * x[2]) * sin(pi * x[0]),
-                      sin(pi * x[0]) * sin(pi * x[1])))
+    return as_vector((sin(pi * y) * sin(pi * z),
+                      sin(pi * z) * sin(pi * x),
+                      sin(pi * x) * sin(pi * y)))
 
 def solve_maxwell(n, k, kind="inhomogeneous"):
     mesh = UnitCubeMesh(n, n, n)
     V = FunctionSpace(mesh, "N1curl", k)
     u, v = TrialFunction(V), TestFunction(V)
-    u_e = exact(SpatialCoordinate(mesh), kind)
+    u_e = exact(mesh, kind)
     f = curl(curl(u_e)) + u_e
 
     a = (inner(curl(u), curl(v)) + inner(u, v)) * dx
     L = inner(f, v) * dx
     uh = Function(V, name="u")
-    solve(a == L, uh, DirichletBC(V, u_e, "on_boundary"),
+    solve(a == L, uh, bcs=DirichletBC(V, u_e, "on_boundary"),
           solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
     return u_e, uh
 
@@ -89,7 +90,7 @@ for kind in ["inhomogeneous", "zero trace"]:
 
 # %% [markdown]
 # A look at the solution on the boundary of the cube; the plot shows the magnitude of the
-# degree-2 field.
+# degree-2 field.  `plot` is an ngsufl convenience for 3D results (Firedrake would write a VTK file).
 
 # %%
 import matplotlib.pyplot as plt
@@ -112,8 +113,9 @@ plot(uh, ax=ax);
 # scalar in UFL.  The geometry is a disk of air with two coil cross sections (opposite
 # current directions) and a vertical iron bar between them.  It is built with
 # `netgen.occ`; the names given to the faces become material names, which the integration
-# measures `dx("iron")`, `dx("coil_p")` address directly.  Curved boundaries are
-# represented by a cubic geometry map.
+# measures `dx("iron")`, `dx("coil_p")` address directly.  Names of materials and boundaries are an
+# ngsufl extra (Firedrake would use the numbers of the cell and facet markers; ids here are the
+# 1-based NGSolve indices).  Curved boundaries are represented by a cubic geometry map.
 
 # %%
 from netgen.occ import Circle, MoveTo, Glue, OCCGeometry
@@ -140,7 +142,7 @@ print("outer boundary:", mesh.boundaries[0])
 # is $\pm 1$ in the two coils.
 
 # %%
-V = FunctionSpace(mesh, "Lagrange", 3)
+V = FunctionSpace(mesh, "CG", 3)
 A, w = TrialFunction(V), TestFunction(V)
 
 nu = {"air": 1.0, "coil_p": 1.0, "coil_m": 1.0, "iron": 1 / 500}
@@ -148,7 +150,7 @@ a = sum(nu_r * inner(grad(A), grad(w)) * dx(name) for name, nu_r in nu.items())
 L = Constant(1.0) * w * dx("coil_p") - Constant(1.0) * w * dx("coil_m")
 
 Az = Function(V, name="Az")
-solve(a == L, Az, DirichletBC(V, 0.0, "rim"))
+solve(a == L, Az, bcs=DirichletBC(V, Constant(0.0), "rim"))
 B = curl(Az)
 
 # %% [markdown]
@@ -161,13 +163,14 @@ B = curl(Az)
 # %%
 import matplotlib.pyplot as plt
 
-fig, ax = plt.subplots(figsize=(6.2, 5))
-plot(sqrt(dot(B, B)), ax=ax, subdivision=2, cmap="viridis")
-xs = np.linspace(-0.98, 0.98, 90)
-X, Y = np.meshgrid(xs, xs)
-Z = np.array([[Az.at(xv, yv) if xv**2 + yv**2 < 0.99**2 else np.nan for xv in xs] for yv in xs])
-ax.contour(X, Y, Z, 14, colors="w", linewidths=0.6)
-ax.set_aspect("equal");
+from ngsufl.pyplot import tricontour, tripcolor
+
+Bh = Function(VectorFunctionSpace(mesh, "DG", 2)).interpolate(B)
+fig, axes = plt.subplots(figsize=(6.2, 5))
+colors = tripcolor(Bh, axes=axes, num_sample_points=2, cmap="viridis")
+fig.colorbar(colors)
+tricontour(Az, levels=14, axes=axes, colors="w", linewidths=0.6)
+axes.set_aspect("equal");
 
 # %% [markdown]
 # ## Checks

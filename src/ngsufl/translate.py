@@ -64,13 +64,25 @@ class Part:
     def grad(self, side, gdim):
         if self.element.family == "Real":
             return _zero(self.element.shape + (gdim,))
-        return self._side(ngs.Grad(self.cf), side)
+        return self._side(self._grad(gdim), side)
+
+    def _grad(self, gdim):
+        try:
+            return ngs.Grad(self.cf)
+        except Exception:
+            # a plain CoefficientFunction: differentiate with respect to the coordinates
+            cf, xs = self.cf, (ngs.x, ngs.y, ngs.z)[:gdim]
+            if cf.dim == 1:
+                return ngs.CF(tuple(cf.Diff(v) for v in xs))
+            flat = cf.Reshape((cf.dim,))
+            comps = tuple(flat[i].Diff(v) for i in range(cf.dim) for v in xs)
+            return ngs.CF(comps, dims=tuple(cf.dims) + (gdim,))
 
     def div(self, side):
         if self.element.family in ("RT", "BDM"):
             return self._side(ngs.div(self.cf), side)
         if len(self.element.shape) == 1 and self.element.family != "Real":
-            return self._side(ngs.Trace(ngs.Grad(self.cf)), side)
+            return self._side(ngs.Trace(self._grad(self.element.shape[0])), side)
         return None
 
     def curl(self, side):
@@ -351,8 +363,10 @@ class Translator:
         f = self.field(e)
         return f.flat_value(side) if f.mixed else f.parts[0].value(side)
 
-    @handles(C.Constant)
+    @handles(C.Constant, C.ConstantValue)
     def constant(self, e, side):
+        if not hasattr(e, "_ngs_cf"):
+            raise NotImplementedError(type(e).__name__)
         return e._ngs_cf()
 
     # ---- literals and geometry

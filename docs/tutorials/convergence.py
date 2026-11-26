@@ -19,13 +19,13 @@ import numpy as np
 
 def solve_poisson(n, k):
     mesh = UnitSquareMesh(n, n)
-    V = FunctionSpace(mesh, "Lagrange", k)
+    V = FunctionSpace(mesh, "CG", k)
     x = SpatialCoordinate(mesh)
     u_e = sin(2 * pi * x[0]) * cos(pi * x[1])
     f = 5 * pi**2 * u_e
     u, v = TrialFunction(V), TestFunction(V)
     uh = Function(V)
-    solve(inner(grad(u), grad(v)) * dx == f * v * dx, uh, DirichletBC(V, u_e, "on_boundary"))
+    solve(inner(grad(u), grad(v)) * dx == f * v * dx, uh, bcs=[DirichletBC(V, u_e, "on_boundary")])
     return errornorm(u_e, uh), errornorm(u_e, uh, "H1"), V.dim()
 
 

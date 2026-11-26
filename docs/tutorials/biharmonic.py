@@ -2,7 +2,8 @@
 # # Biharmonic equation
 #
 # This tutorial follows the biharmonic demo of
-# [DOLFINx](https://docs.fenicsproject.org/dolfinx/main/python/demos.html).
+# [DOLFINx](https://docs.fenicsproject.org/dolfinx/main/python/demos.html), written in
+# the Firedrake style.
 # We solve the simply supported plate problem
 #
 # $$ \Delta^2 u = f \ \text{in } \Omega = (0,1)^2, \qquad u = 0, \ \Delta u = 0 \ \text{on } \partial\Omega , $$
@@ -35,7 +36,7 @@ import numpy as np
 
 def solve_biharmonic(n, alpha=8.0, degree=2):
     mesh = UnitSquareMesh(n, n)
-    V = FunctionSpace(mesh, "Lagrange", degree)
+    V = FunctionSpace(mesh, "CG", degree)
     u, v = TrialFunction(V), TestFunction(V)
     x = SpatialCoordinate(mesh)
     nrm, h = FacetNormal(mesh), CellDiameter(mesh)
@@ -51,22 +52,26 @@ def solve_biharmonic(n, alpha=8.0, degree=2):
     L = f * v * dx
 
     uh = Function(V, name="u")
-    solve(a == L, uh, DirichletBC(V, 0.0, "on_boundary"))
+    solve(a == L, uh, bcs=[DirichletBC(V, 0.0, "on_boundary")])
     return mesh, u_e, uh
 
 mesh, u_e, uh = solve_biharmonic(16)
 print("dofs:", uh.function_space().dim())
 print("L2 error:", errornorm(u_e, uh))
-print("max u_h :", max(uh.array), "  exact max: 1")
+print("max u_h :", uh.dat.data.max(), "  exact max: 1")
 
 # %%
 import matplotlib.pyplot as plt
+from ngsufl.pyplot import tripcolor
 
+err = Function(uh.function_space()).interpolate(uh - u_e)
 fig, axs = plt.subplots(1, 2, figsize=(9, 3.6))
-plot(uh, ax=axs[0])
+fig.colorbar(tripcolor(uh, axes=axs[0]), ax=axs[0])
 axs[0].set_title("$u_h$")
-plot(uh - u_e, ax=axs[1])
-axs[1].set_title("$u_h - u_e$");
+fig.colorbar(tripcolor(err, axes=axs[1]), ax=axs[1])
+axs[1].set_title("$u_h - u_e$ (interpolated)")
+for ax in axs:
+    ax.set_aspect("equal")
 
 # %% [markdown]
 # ## Convergence and the penalty parameter

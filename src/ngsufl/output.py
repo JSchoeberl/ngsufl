@@ -149,8 +149,11 @@ def Draw(obj, mesh=None, **kwargs):
 class VTKFile:
     """``VTKFile("out").write(u, p, time=t)`` writes VTK files through NGSolve."""
 
-    def __init__(self, filename, subdivision=1):
+    def __init__(self, filename, subdivision=1, **kw):
+        import os
         self.filename = filename[:-4] if filename.endswith((".pvd", ".vtk", ".vtu")) else filename
+        if os.path.dirname(self.filename):
+            os.makedirs(os.path.dirname(self.filename), exist_ok=True)
         self.subdivision = subdivision
         self._out = None
 

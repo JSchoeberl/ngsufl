@@ -2,7 +2,8 @@
 # # Cahn-Hilliard equation
 #
 # This tutorial follows the Cahn-Hilliard demo of
-# [DOLFINx](https://docs.fenicsproject.org/dolfinx/main/python/demos.html).
+# [DOLFINx](https://docs.fenicsproject.org/dolfinx/main/python/demos.html), written in
+# the Firedrake style.
 # The concentration $c$ of a binary mixture evolves by
 #
 # $$ \partial_t c - \nabla\cdot\big(M \nabla\mu\big) = 0, \qquad
@@ -27,14 +28,15 @@
 #
 # The derivative $f'(c)$ is not typed by hand: wrapping $c$ in `variable` and calling `diff`
 # lets UFL differentiate the energy density symbolically.  The Newton Jacobian is not
-# supplied either, since NGSolve differentiates the residual itself (with `J=derivative(F, u)` UFL would do it).
+# supplied either, since NGSolve differentiates the residual itself (Firedrake would use
+# UFL; `J=derivative(F, u)` does the same here).
 
 # %%
 from ngsufl import *
 import numpy as np
 
 mesh = UnitSquareMesh(40, 40)
-P1 = FunctionSpace(mesh, "Lagrange", 1)
+P1 = FunctionSpace(mesh, "CG", 1)
 ME = P1 * P1
 
 q, v = TestFunctions(ME)
@@ -60,16 +62,16 @@ F = F0 + F1
 # ## Initial condition
 #
 # The initial concentration is a random perturbation of 0.63.  For degree 1 the dofs of a
-# `Function` are the vertex values, so we can fill the array of the first sub-function
-# directly.
+# `Function` are the vertex values, so we can fill the data array of the first
+# sub-function directly.
 
 # %%
 rng = np.random.default_rng(42)
-u.sub(0).array[:] = 0.63 + 0.02 * (0.5 - rng.random(P1.dim()))
+u.subfunctions[0].dat.data[:] = 0.63 + 0.02 * (0.5 - rng.random(P1.dim()))
 u0.assign(u)
 
 problem = NonlinearVariationalProblem(F, u)
-solver = NonlinearVariationalSolver(problem, {"snes_rtol": 1e-8, "snes_atol": 1e-10})
+solver = NonlinearVariationalSolver(problem, solver_parameters={"snes_rtol": 1e-8, "snes_atol": 1e-10})
 
 # %% [markdown]
 # ## Time stepping
@@ -79,7 +81,7 @@ solver = NonlinearVariationalSolver(problem, {"snes_rtol": 1e-8, "snes_atol": 1e
 # Mass and energy are monitored, and four snapshots of $c$ are stored.
 
 # %%
-c_now = u.sub(0)
+c_now = u.subfunctions[0]
 energy_form = (100 * c_now**2 * (1 - c_now) ** 2 + 0.5 * lmbda * dot(grad(c_now), grad(c_now))) * dx
 
 nsteps = 100
@@ -90,7 +92,7 @@ snaps[0] = (0.0, c_now.copy())
 for step in range(1, nsteps + 1):
     u0.assign(u)
     solver.solve()
-    newton.append(solver.iterations)
+    newton.append(solver.iterations)  # ngsufl extra; Firedrake: solver.snes.getIterationNumber()
     mass.append(assemble(c_now * dx))
     energy.append(assemble(energy_form))
     if step in snap_at:
@@ -104,13 +106,15 @@ print("energy non-increasing:", all(e1 <= e0 * (1 + 1e-10) for e0, e1 in zip(ene
 
 # %%
 import matplotlib.pyplot as plt
+from ngsufl.pyplot import tripcolor
 
 fig, axs = plt.subplots(1, 4, figsize=(13, 3.4))
 for ax, (step, (t, cs)) in zip(axs, sorted(snaps.items())):
-    plot(cs, ax=ax, colorbar=False, vmin=0.0, vmax=1.0)
+    colors = tripcolor(cs, axes=ax, vmin=0.0, vmax=1.0)
     ax.set_title(f"t = {t:.1e}")
+    ax.set_aspect("equal")
     ax.set_xticks([]); ax.set_yticks([])
-fig.tight_layout();
+fig.colorbar(colors, ax=axs);
 
 # %%
 t = dt * np.arange(nsteps + 1)
