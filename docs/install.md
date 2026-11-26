@@ -70,6 +70,14 @@ pip install firedrake-fiat git+https://github.com/firedrakeproject/Irksome
 
 Neither Firedrake nor PETSc is needed.
 
+## Adjoints with pyadjoint
+
+For `ngsufl.pyadjoint`, see [the tutorial](tutorials/optimal_control), add
+
+```bash
+pip install pyadjoint-ad
+```
+
 ## Legacy FEniCS scripts
 
 Nothing else is needed.  Replace `from fenics import *` or `from dolfin import *` by

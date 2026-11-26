@@ -17,6 +17,7 @@ plot = ["matplotlib"]
 test = ["pytest", "scipy", "matplotlib"]
 docs = ["jupyter-book<2", "matplotlib", "scipy", "ipykernel"]
 irksome = ["firedrake-fiat", "IRKsome @ git+https://github.com/firedrakeproject/Irksome"]
+adjoint = ["pyadjoint-ad"]
 
 [project.urls]
 Homepage = "https://github.com/JSchoeberl/ngsufl"

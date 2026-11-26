@@ -124,6 +124,25 @@ and re-exports what works with it.  Import it before the first form is assembled
 Not available: Galerkin-in-time steppers, IMEX, adaptive step sizes, bound constraints,
 Irksome's stage preconditioners.
 
+## Adjoints
+
+`ngsufl.pyadjoint` connects [pyadjoint](https://pyadjoint.org), the engine of dolfin-adjoint
+and `firedrake.adjoint`.  It is a prototype for first derivatives.
+
+| | |
+|---|---|
+| `from ngsufl.pyadjoint import *` | makes `Function` and `Constant` tape-aware and exports the names below |
+| `continue_annotation()`, `pause_annotation()`, `stop_annotating()`, `set_working_tape(Tape())` | switch recording on and off |
+| `J = assemble(functional)` | an `AdjFloat` while recording |
+| `Jhat = ReducedFunctional(J, Control(m))`, `Jhat(m)`, `Jhat.derivative()` | controls: `Function`, `Constant`, or a list of them |
+| `Control(m, riesz_map="L2")` | `"L2"` (default), `"H1"`, or `"l2"` for SciPy |
+| `taylor_test(Jhat, m, h)`, `minimize(Jhat, method="L-BFGS-B")`, `compute_gradient(J, Control(m))` | |
+
+Recorded: `solve`, the variational solver classes, `project`, `Function.assign`,
+`interpolate`, `copy`, `+=`.  Not available: Hessians, Dirichlet values as controls,
+components of mixed functions on the tape (use `split(u)`), `solve(A, x, b)`, shape
+derivatives, and recording of the Irksome steppers.
+
 ## Legacy FEniCS dialect
 
 `from ngsufl.fenics import *` exports the same package with the names and call

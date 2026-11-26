@@ -511,6 +511,8 @@ class Function(ufl.Coefficient):
             V = self.function_space()
             self._subs = tuple(Function(V.sub(i).collapse(), name=f"{self.name}_{i}", gf=c)
                                for i, c in enumerate(self.gf.components))
+            for f in self._subs:
+                f._parent = self
         return self._subs
 
     @property

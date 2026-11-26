@@ -16,7 +16,7 @@ jobs:
           python-version: "3.12"
       # the release 6.2.2608 is too old, see docs/install.md
       - run: pip install --pre ngsolve
-      - run: pip install fenics-ufl matplotlib scipy pytest
+      - run: pip install fenics-ufl matplotlib scipy pytest pyadjoint-ad
       - run: pip install firedrake-fiat git+https://github.com/firedrakeproject/Irksome
       - run: pip install -e .
       # failing tests become annotations, readable without the log
