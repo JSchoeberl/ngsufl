@@ -1,6 +1,7 @@
 title: ngsufl
 author: Joachim Schöberl and Claude
 copyright: "2026"
+logo: logo.svg
 
 execute:
   execute_notebooks: "off"

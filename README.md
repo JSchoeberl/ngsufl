@@ -1,5 +1,7 @@
 # ngsufl
 
+<p align="center"><img src="docs/logo.png" width="380" alt="NGSolve and UFL clinking glasses"></p>
+
 **The Unified Form Language on the NGSolve finite element core.**
 
 Write your variational problem in [UFL](https://github.com/FEniCS/ufl), the form
