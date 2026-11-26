@@ -85,9 +85,26 @@ class DirichletBC:
     def function_space(self):
         return self.space
 
+    def __iter__(self):
+        yield self
+
     @property
     def sub_domain(self):
         return self.where
+
+    @property
+    def function_arg(self):
+        return self.g
+
+    @function_arg.setter
+    def function_arg(self, g):
+        self.g = g
+
+    _original_arg = function_arg
+
+    def reconstruct(self, V=None, g=None, sub_domain=None):
+        """A copy with another space, value or boundary."""
+        return type(self)(V or self.space, self.g if g is None else g, sub_domain or self.where)
 
     def apply(self, *targets):
         """Write the boundary values into Functions and vectors, and attach the condition to matrices."""

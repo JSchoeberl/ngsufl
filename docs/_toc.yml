@@ -9,6 +9,7 @@ parts:
       - file: tutorials/poisson
       - file: tutorials/membrane
       - file: tutorials/heat
+      - file: tutorials/irksome_time_stepping
       - file: tutorials/nonlinear_poisson
       - file: tutorials/boundary_conditions
       - file: tutorials/convergence

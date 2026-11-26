@@ -57,6 +57,16 @@ install only `fenics-ufl` and ngsufl into that Python.  Make sure that one NGSol
 found: a `PYTHONPATH` that points to another NGSolve takes precedence over the one in
 the virtual environment.
 
+## Time stepping with Irksome
+
+For `ngsufl.irksome`, see [the tutorial](tutorials/irksome_time_stepping), add
+
+```bash
+pip install firedrake-fiat git+https://github.com/firedrakeproject/Irksome
+```
+
+Neither Firedrake nor PETSc is needed.
+
 ## Legacy FEniCS scripts
 
 Nothing else is needed.  Replace `from fenics import *` or `from dolfin import *` by

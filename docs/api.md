@@ -108,6 +108,22 @@ The quadrature order follows UFL's degree estimation.  Set it with `dx(degree=4)
 | `plot(u)`, `plot(expr)`, `plot(mesh)` | extra: one-line matplotlib plot with colour bar; 3D boundary surface with optional `deformation=` |
 | `Draw(u)` | extra: NGSolve webgui |
 
+## Time stepping
+
+`ngsufl.irksome` is a back end for [Irksome](https://www.firedrakeproject.org/Irksome/)
+and re-exports what works with it.  Import it before the first form is assembled.
+
+| | |
+|---|---|
+| `Dt(u)` | time derivative in the semi-discrete form |
+| `TimeStepper(F, method, t, dt, u, bcs=..., solver_parameters=..., nullspace=...)` | `stage_type="deriv"` (default), `"value"`, `"dirk"`; `.advance()` |
+| `BackwardEuler()`, `RadauIIA(s)`, `GaussLegendre(s)`, `LobattoIIIC(s)`, `LobattoIIIA(s)` | fully implicit Runge-Kutta; Lobatto IIIA needs `bc_type="ODE"` |
+| `Alexander()`, `QinZhang()`, `PareschiRusso(x)`, `WSODIRK(...)` | diagonally implicit, with `stage_type="dirk"` |
+| `BDF(k)`, `AdamsMoulton(k)`, `AdamsBashforth(k)` | multistep; the Adams methods are not for stiff problems |
+
+Not available: Galerkin-in-time steppers, IMEX, adaptive step sizes, bound constraints,
+Irksome's stage preconditioners.
+
 ## Legacy FEniCS dialect
 
 `from ngsufl.fenics import *` exports the same package with the names and call

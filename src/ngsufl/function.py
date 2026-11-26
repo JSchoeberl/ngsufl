@@ -54,13 +54,19 @@ class FunctionSpace(ufl.FunctionSpace):
 
     @property
     def subspaces(self):
-        return tuple(self.sub(i) for i in range(self.num_sub_spaces())) or (self,)
+        if isinstance(self.ufl_element(), MixedElement):
+            return tuple(self.sub(i) for i in range(self.num_sub_spaces()))
+        return (self,)
 
     def __len__(self):
         return len(self.ufl_element().sub_elements) if isinstance(self.ufl_element(), MixedElement) else 1
 
     def sub(self, i):
+        if i == 0 and not self.ufl_element().sub_elements:
+            return self
         return SubSpace(self, (i,))
+
+    __getitem__ = sub
 
     def dof_range(self):
         return range(self.fes.ndof)
@@ -130,6 +136,39 @@ class SubSpace:
 
     def collapse(self):
         return FunctionSpace(self.mesh, self.ufl_element(), **self.root.flags)
+
+
+class Argument(ufl.Argument):
+    """UFL argument with ``function_space()`` as in Firedrake."""
+
+    def function_space(self):
+        return self.ufl_function_space()
+
+    def geometric_dimension(self):
+        return self.ufl_function_space().mesh.dim
+
+    def __eq__(self, other):
+        return (isinstance(other, ufl.Argument) and self.number() == other.number()
+                and self.part() == other.part()
+                and self.ufl_function_space() == other.ufl_function_space())
+
+    __hash__ = ufl.Argument.__hash__
+
+
+def TestFunction(V, part=None):
+    return Argument(V, 0, part)
+
+
+def TrialFunction(V, part=None):
+    return Argument(V, 1, part)
+
+
+def TestFunctions(V):
+    return ufl.split(TestFunction(V))
+
+
+def TrialFunctions(V):
+    return ufl.split(TrialFunction(V))
 
 
 class _Sym:
@@ -467,19 +506,27 @@ class Function(ufl.Coefficient):
     def array(self):
         return self.gf.vec.FV().NumPy()
 
-    @property
-    def subfunctions(self):
+    def _components(self):
         if self._subs is None:
             V = self.function_space()
             self._subs = tuple(Function(V.sub(i).collapse(), name=f"{self.name}_{i}", gf=c)
                                for i, c in enumerate(self.gf.components))
         return self._subs
 
+    @property
+    def subfunctions(self):
+        """The functions of a mixed function, sharing its data; ``(self,)`` otherwise."""
+        if isinstance(self.ufl_element(), MixedElement):
+            return self._components()
+        return (self,)
+
     def sub(self, i):
-        return self.subfunctions[i]
+        """Component i of a mixed or vector valued function."""
+        comps = self._components()
+        return comps[i] if comps else self
 
     def split(self):
-        return self.subfunctions
+        return self._components()
 
     def interpolate(self, expr):
         """Set the function from an expression, which may contain the function itself.
@@ -600,6 +647,9 @@ class _Parameters:
 
     def values(self):
         return np.array([p.Get() for p in self._params])
+
+    def zero(self):
+        return self.assign(np.zeros(self.ufl_shape))
 
     def __float__(self):
         return float(self.value)

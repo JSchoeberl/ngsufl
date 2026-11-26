@@ -804,37 +804,6 @@ class DirichletBC(_CoreBC):
 
 # ---------------------------------------------------------------- arguments and functions
 
-class _Argument(ufl.Argument):
-    """UFL argument that also answers ``geometric_dimension()`` like the old UFL did."""
-
-    def geometric_dimension(self):
-        V = self.ufl_function_space()
-        return V.mesh.dim if hasattr(V, "mesh") else V.ufl_domain().geometric_dimension()
-
-    def __eq__(self, other):
-        return (isinstance(other, ufl.Argument) and self.number() == other.number()
-                and self.part() == other.part()
-                and self.ufl_function_space() == other.ufl_function_space())
-
-    __hash__ = ufl.Argument.__hash__
-
-
-def TestFunction(V):
-    return _Argument(V, 0)
-
-
-def TrialFunction(V):
-    return _Argument(V, 1)
-
-
-def TestFunctions(V):
-    return ufl.split(TestFunction(V))
-
-
-def TrialFunctions(V):
-    return ufl.split(TrialFunction(V))
-
-
 class Function(_CoreFunction):
     """Function with ``split(deepcopy=...)`` like dolfin."""
 

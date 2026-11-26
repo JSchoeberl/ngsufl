@@ -1260,7 +1260,6 @@ def test_dirichlet_bc_methods():
     assert len(bc.nodes) == 3
 
 
-@xfail("DirichletBC.function_arg is missing; Firedrake lets time dependent scripts update g")
 def test_dirichlet_bc_function_arg_update():
     m = UnitSquareMesh(4, 4)
     V = FunctionSpace(m, "CG", 1)
@@ -2621,7 +2620,6 @@ def test_petsc_print_import():
     PETSc.Print("hello")
 
 
-@xfail("Argument.function_space() is missing (Firedrake adds it to TestFunction/TrialFunction)")
 def test_argument_function_space_method():
     V = FunctionSpace(UnitSquareMesh(2, 2), "CG", 1)
     assert TestFunction(V).function_space() is V

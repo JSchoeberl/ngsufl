@@ -132,6 +132,9 @@ class MixedVectorSpaceBasis:
     def orthonormalize(self):
         pass
 
+    def __iter__(self):
+        return iter(self.bases)
+
     def _vectors(self, V):
         out = []
         for i, b in enumerate(self.bases):
@@ -220,6 +223,23 @@ class LinearSolver:
         _remove(xv, self._ns)
 
 
+class _SNES:
+    """The part of PETSc's SNES interface that scripts read after a solve."""
+
+    def __init__(self, solver):
+        self._solver = solver
+
+    def getIterationNumber(self):
+        return self._solver.iterations
+
+    getLinearSolveIterations = getIterationNumber
+
+
+def _no_bounds(bounds):
+    if bounds is not None:
+        raise NotImplementedError("bound constraints")
+
+
 class LinearVariationalProblem:
     def __init__(self, a, L, u, bcs=None, constant_jacobian=False, **kw):
         self.a, self.L, self.u, self.bcs = a, L, u, _bcs(bcs)
@@ -231,8 +251,13 @@ class LinearVariationalSolver:
         self.problem, self.params, self.flags = problem, solver_parameters, _flags(kw)
         self.nullspace = nullspace
         self._a = self._inv = self._f = self._free = self._ns = None
+        self.iterations, self.snes = 1, _SNES(self)
 
-    def solve(self):
+    def invalidate_jacobian(self):
+        self._inv = None
+
+    def solve(self, bounds=None):
+        _no_bounds(bounds)
         p = self.problem
         gf = p.u.gf
         if self._free is None:
@@ -273,9 +298,10 @@ class NonlinearVariationalSolver:
         self.problem, self.params, self.flags = problem, dict(solver_parameters or {}), _flags(kw)
         self.nullspace = nullspace
         self._res = self._jac = self._free = self._ns = None
-        self.iterations = 0
+        self.iterations, self.snes = 0, _SNES(self)
 
-    def solve(self):
+    def solve(self, bounds=None):
+        _no_bounds(bounds)
         p, par = self.problem, self.params
         gf = p.u.gf
         if self._free is None:

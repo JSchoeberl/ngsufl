@@ -11,7 +11,8 @@ import ufl as _ufl
 from .bcs import DirichletBC
 from .element import FiniteElement, MixedElement, TensorElement, VectorElement
 from .function import (Constant, Function, FunctionSpace, MixedFunctionSpace,
-                       TensorFunctionSpace, Vector, VectorFunctionSpace, as_cf, from_cf,
+                       TensorFunctionSpace, TestFunction, TestFunctions, TrialFunction,
+                       TrialFunctions, Vector, VectorFunctionSpace, as_cf, from_cf,
                        material_function, to_cf)
 from .mesh import (BoxMesh, CubeMesh, IntervalMesh, Mesh, RectangleMesh, SquareMesh,
                    UnitCubeMesh, UnitIntervalMesh, UnitSquareMesh)

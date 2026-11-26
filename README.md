@@ -81,6 +81,7 @@ pip install git+https://github.com/JSchoeberl/ngsufl
 | **Geometry** | structured meshes, and any Netgen / OpenCascade geometry with curved elements |
 | **Nonlinear problems** | Newton with the Jacobian from UFL's `derivative` or from NGSolve's own differentiation |
 | **Solvers** | NGSolve direct and Krylov solvers behind PETSc-style option names; null spaces |
+| **Time stepping** | Runge-Kutta and multistep methods of [Irksome](https://www.firedrakeproject.org/Irksome/) through the back end `ngsufl.irksome` |
 | **Interoperability** | both ways: `u.gf` is the NGSolve `GridFunction` and `to_cf(expr)` the `CoefficientFunction` of any UFL expression; `from_cf(cf)` puts any NGSolve `CoefficientFunction` into a UFL form |
 
 ## How it works

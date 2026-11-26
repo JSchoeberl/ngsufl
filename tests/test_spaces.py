@@ -796,8 +796,9 @@ def test_function_vector_accessor():
     f.vector()
 
 
-def test_sub_of_non_mixed_function_raises_cleanly():
+def test_sub_of_non_mixed_function():
     m = mesh("tri")
     f = Function(FunctionSpace(m, "Lagrange", 1))
-    with pytest.raises((IndexError, ValueError, TypeError, NotImplementedError)):
-        f.sub(0)
+    assert f.sub(0) is f and f.subfunctions == (f,)
+    g = Function(VectorFunctionSpace(m, "Lagrange", 1))
+    assert g.subfunctions == (g,) and g.sub(1).function_space().dim() == f.function_space().dim()

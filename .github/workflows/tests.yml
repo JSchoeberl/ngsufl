@@ -15,5 +15,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ngsolve fenics-ufl matplotlib scipy pytest
+      - run: pip install firedrake-fiat git+https://github.com/firedrakeproject/Irksome
       - run: pip install -e .
       - run: MPLBACKEND=Agg pytest -q
