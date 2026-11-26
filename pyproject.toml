@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Joachim Schoeberl" }, { name = "Claude" }]
 requires-python = ">=3.10"
-dependencies = ["ngsolve", "fenics-ufl>=2025.1", "numpy"]
+dependencies = ["ngsolve>=6.2.2608.post400.dev0", "fenics-ufl>=2025.1", "numpy"]
 
 [project.optional-dependencies]
 plot = ["matplotlib"]

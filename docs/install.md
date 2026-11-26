@@ -15,9 +15,14 @@ source ngsufl-env/bin/activate
 Then
 
 ```bash
-pip install --upgrade ngsolve fenics-ufl matplotlib
+pip install --pre --upgrade ngsolve
+pip install fenics-ufl matplotlib
 pip install git+https://github.com/JSchoeberl/ngsufl
 ```
+
+The first line installs the current development build of NGSolve.  It is needed until
+the next NGSolve release: the release 6.2.2608 lacks fixes that ngsufl relies on
+(interpolation into H(div) and H(curl) spaces, GMRes, vector spaces in 1D).
 
 `matplotlib` is only needed for plots.  For the tutorials as notebooks add
 `pip install jupyterlab`, and for the interactive NGSolve viewer
@@ -46,8 +51,9 @@ prints `0.000548...`.
 
 ## Versions
 
-Tested with NGSolve 6.2.2608, UFL 2026.2 and Python 3.15.  Older NGSolve versions
-are untested; `pip install --upgrade ngsolve` gives a current one.
+Tested with the NGSolve development builds 6.2.2608-424 and 6.2.2608-429, UFL 2026.2
+and Python 3.13 and 3.15.  With the release 6.2.2608 a few tests fail, and ngsufl
+prints a warning when it finds it.
 
 If NGSolve is already installed in another way (a self-built version, the Netgen app),
 install only `fenics-ufl` and ngsufl into that Python.  Make sure that one NGSolve is

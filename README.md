@@ -63,7 +63,8 @@ same problem written directly in NGSolve.
 ## Installation
 
 ```bash
-pip install --upgrade ngsolve fenics-ufl matplotlib
+pip install --pre --upgrade ngsolve      # a build newer than the release 6.2.2608
+pip install fenics-ufl matplotlib
 pip install git+https://github.com/JSchoeberl/ngsufl
 ```
 

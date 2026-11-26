@@ -8,6 +8,19 @@ Firedrake (meshes, spaces, functions, boundary conditions, solve).
 from ufl import *  # noqa: F401,F403
 import ufl as _ufl
 
+
+def _check_ngsolve():
+    import re
+    import warnings
+    import ngsolve
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)(?:-(\d+))?", ngsolve.__version__)
+    if m and tuple(int(g or 0) for g in m.groups()) < (6, 2, 2608, 400):
+        warnings.warn(f"ngsufl needs an NGSolve newer than the release 6.2.2608, found {ngsolve.__version__}; "
+                      "install one with: pip install --pre --upgrade ngsolve", stacklevel=3)
+
+
+_check_ngsolve()
+
 from .bcs import DirichletBC
 from .element import FiniteElement, MixedElement, TensorElement, VectorElement
 from .function import (Constant, Function, FunctionSpace, MixedFunctionSpace,

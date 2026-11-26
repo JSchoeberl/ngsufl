@@ -14,7 +14,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ngsolve fenics-ufl matplotlib scipy pytest
+      # the release 6.2.2608 is too old, see docs/install.md
+      - run: pip install --pre ngsolve
+      - run: pip install fenics-ufl matplotlib scipy pytest
       - run: pip install firedrake-fiat git+https://github.com/firedrakeproject/Irksome
       - run: pip install -e .
-      - run: MPLBACKEND=Agg pytest -q
+      # failing tests become annotations, readable without the log
+      - name: pytest
+        run: |
+          set +e
+          MPLBACKEND=Agg pytest -q -rf 2>&1 | tee pytest.log
+          status=${PIPESTATUS[0]}
+          grep -E "^(FAILED|ERROR)" pytest.log | head -20 | sed 's/^/::error::/'
+          exit $status
