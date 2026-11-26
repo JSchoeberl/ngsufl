@@ -23,11 +23,8 @@ pip install git+https://github.com/JSchoeberl/ngsufl
 `pip install jupyterlab`, and for the interactive NGSolve viewer
 `pip install webgui_jupyter_widgets`.
 
-```{note}
-ngsufl is not on PyPI yet.  While the repository is private, the second line asks for
-a GitHub login with access to it.  With an SSH key use
-`pip install git+ssh://git@github.com/JSchoeberl/ngsufl`.
-```
+ngsufl is not on PyPI yet; the second line installs it from the public GitHub
+repository.
 
 ## Check
 
