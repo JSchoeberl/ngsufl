@@ -63,11 +63,13 @@ same problem written directly in NGSolve.
 ## Installation
 
 ```bash
-pip install ngsolve fenics-ufl
+pip install --upgrade ngsolve fenics-ufl matplotlib
 pip install git+https://github.com/JSchoeberl/ngsufl
 ```
 
-For plots add `matplotlib`; for the interactive NGSolve viewer `webgui_jupyter_widgets`.
+`matplotlib` is only needed for plots; for the interactive NGSolve viewer add
+`webgui_jupyter_widgets`.  Details and a first check are on the
+[installation page](https://jschoeberl.github.io/ngsufl/install.html).
 
 ## What you get
 

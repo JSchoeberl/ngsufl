@@ -1,6 +1,9 @@
 format: jb-book
 root: intro
 parts:
+  - caption: Getting started
+    chapters:
+      - file: install
   - caption: First steps
     chapters:
       - file: tutorials/poisson

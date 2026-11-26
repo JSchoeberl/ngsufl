@@ -14,8 +14,8 @@ dependencies = ["ngsolve", "fenics-ufl>=2025.1", "numpy"]
 
 [project.optional-dependencies]
 plot = ["matplotlib"]
-test = ["pytest"]
-docs = ["jupyter-book<2", "matplotlib", "ipykernel"]
+test = ["pytest", "scipy", "matplotlib"]
+docs = ["jupyter-book<2", "matplotlib", "scipy", "ipykernel"]
 
 [project.urls]
 Homepage = "https://github.com/JSchoeberl/ngsufl"
